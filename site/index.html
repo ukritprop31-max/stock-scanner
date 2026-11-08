@@ -51,6 +51,9 @@
   .chip{font-size:12px;background:#f0f3fa;border-radius:6px;padding:3px 7px;font-variant-numeric:tabular-nums}
   .drs{font-size:12px;color:#8a6100;margin-top:2px;font-weight:500;white-space:normal}
   .nm{font-size:12px;color:var(--mut);margin-top:2px}
+  .pair{font-size:12px;margin-top:6px;padding:5px 8px;border-radius:6px;background:#eef2ff;color:#1e3a8a;white-space:normal;cursor:pointer;text-align:left}
+  .chpair{font-size:12px;padding:4px 14px 6px;display:flex;gap:6px;flex-wrap:wrap}
+  .chpair button{font:inherit;border:1px solid #c7d2fe;background:#eef2ff;color:#1e3a8a;border-radius:6px;padding:3px 8px}
   .chip.hl{background:#fff8e1;color:#8a6100;font-weight:600}
   #mSort{display:none;margin-bottom:8px}
   #chartWrap{display:none;position:fixed;inset:0;background:#fff;z-index:10;flex-direction:column;height:100dvh}
@@ -139,6 +142,7 @@
 
 <div id="chartWrap">
   <div class="ch-head"><b id="chT"></b><span id="chP"></span><button id="close">ปิด</button></div>
+  <div class="chpair" id="chPair"></div>
   <div class="legend">
     <span style="--c:#F7E463">EMA 12</span><span style="--c:#F4A43B">EMA 26</span><span style="--c:#E57373">EMA 50</span>
     <span style="--c:#4DB6AC">EMA 100</span><span style="--c:#5B7CFA">EMA 200</span><span style="--c:#AB47BC">EMA 800</span>
@@ -149,7 +153,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let DATA = null, rows = [], sortK = "rsima", sortD = -1;
+let DATA = null, BY = {}, rows = [], sortK = "rsima", sortD = -1;
 const DEF = ["theme", "thai", "thai_dr", "csi300", "nasdaq100", "sp500"];
 const IDS = ["th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Min","r30Max","a800","rib"];
 const fmt = (v, d = 2) => v == null ? "–" : Number(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
@@ -160,6 +164,7 @@ async function load() {
   try {
     DATA = await (await fetch("data/scan.json", {cache: "no-cache"})).json();
   } catch (e) { $("upd").textContent = "ยังไม่มีข้อมูล — รอให้ระบบสแกนรอบแรกเสร็จ"; return; }
+  BY = Object.fromEntries(DATA.rows.map(r => [r.t, r]));
   const d = new Date(DATA.updated);
   $("upd").textContent = `อัปเดต ${d.toLocaleString("th-TH", {dateStyle: "medium", timeStyle: "short"})} · ${DATA.count.toLocaleString()} หุ้น · ราคาปิดล่าสุดจาก Yahoo Finance`;
   $("errs").innerHTML = (DATA.errors || []).map(e => "• " + e).join("<br>");
@@ -188,7 +193,8 @@ function apply() {
   store.set("cloudSet", o);
   const q = $("q").value.trim().toUpperCase();
   rows = DATA.rows.filter(r => {
-    if (q) return r.t.includes(q) || (r.dr || []).some(d => d.includes(q)) || (r.nm || "").toUpperCase().includes(q);
+    if (q) return r.t.includes(q) || allDr(r).some(d => d.includes(q)) || (r.nm || "").toUpperCase().includes(q)
+      || (r.pair || []).some(p => p.includes(q) || ((BY[p] || {}).nm || "").toUpperCase().includes(q));
     if (!r.m.some(m => unis.includes(m))) return false;
     if (!(r.rsima > +o.th)) return false;
     if ((r.val || 0) < +o.minv) return false;
@@ -203,6 +209,11 @@ function apply() {
   render();
 }
 
+const allDr = r => [...(r.dr || []), ...(r.pair || []).flatMap(p => (BY[p] || {}).dr || [])];
+const nmOf = o => o.nm || (o.pair || []).map(p => (BY[p] || {}).nm).find(Boolean) || "";
+const side = t => t.endsWith(".HK") ? "H" : "A";
+const pairHtml = o => (o.pair || []).map(p => { const r = BY[p] || {};
+  return `<div class="pair" data-t="${p}">⇄ คู่${side(p) === "H" ? "ฮ่องกง (H)" : "จีน (A)"} <b>${p}</b> · ${fmt(r.c)} ${pc(r.chg)} · RSI-MA <b>${fmt(r.rsima)}</b>${r.dr ? ` · DR ไทย: ${r.dr.join(" ")}` : ""}</div>`; }).join("");
 const drTxt = o => o.dr ? "DR ไทย: " + o.dr.slice(0, 5).join(" · ") + (o.dr.length > 5 ? " …" : "") : "";
 function render() {
   const r = [...rows].sort((a, b) => {
@@ -213,13 +224,13 @@ function render() {
   const nlTxt = o => o.nl_m == null ? "> 4 ปี" : fmt(o.nl_m, 1);
   const r30Txt = o => o.r30_m == null ? "> 4 ปี" : fmt(o.r30_m, 1);
   $("tb").innerHTML = r.length ? r.map(o => `<tr data-t="${o.t}">
-    <td><b>${o.t}</b>${drTxt(o) ? `<div class="drs">${drTxt(o)}</div>` : ""}</td><td>${fmt(o.c)}</td><td>${pc(o.chg)}</td><td><b>${fmt(o.rsima)}</b></td><td>${fmt(o.rsi)}</td>
+    <td><b>${o.t}</b>${drTxt(o) ? `<div class="drs">${drTxt(o)}</div>` : ""}${pairHtml(o)}</td><td>${fmt(o.c)}</td><td>${pc(o.chg)}</td><td><b>${fmt(o.rsima)}</b></td><td>${fmt(o.rsi)}</td>
     <td>${o.streak}</td><td>${pc(o.d800)}</td><td>${pc(o.d200)}</td><td>${nlTxt(o)}</td><td>${o.nh_d ?? "–"}</td>
     <td>${r30Txt(o)}</td><td>${fmt(o.val, 1)}</td><td>${o.ribbon ? '<span class="tag">เรียง</span>' : ""}</td></tr>`).join("")
     : `<tr><td colspan="13" class="empty">ไม่มีหุ้นเข้าเงื่อนไข</td></tr>`;
   $("cards").innerHTML = r.length ? r.map(o => `<div class="sc${o.f ? "" : " nochart"}" data-t="${o.t}">
     <div class="top"><b>${o.t}</b><span class="px">${fmt(o.c)} ${pc(o.chg)}</span></div>
-    ${o.nm ? `<div class="nm">${o.nm}</div>` : ""}${drTxt(o) ? `<div class="drs">${drTxt(o)}</div>` : ""}
+    ${nmOf(o) ? `<div class="nm">${nmOf(o)}</div>` : ""}${drTxt(o) ? `<div class="drs">${drTxt(o)}</div>` : ""}${pairHtml(o)}
     <div class="chips">
       <span class="chip hl">RSI-MA ${fmt(o.rsima)}</span><span class="chip">RSI ${fmt(o.rsi)}</span>
       <span class="chip">ติด ${o.streak} วัน</span>
@@ -247,8 +258,12 @@ const line = (time, arr) => time.map((t, i) => arr[i] == null ? {time: t} : {tim
 
 async function openChart(t) {
   const r = DATA.rows.find(x => x.t === t);
-  $("chartWrap").classList.add("on"); $("chT").textContent = t;
-  history.pushState({chart: t}, "");
+  const wasOpen = $("chartWrap").classList.contains("on");
+  $("chartWrap").classList.add("on"); $("chT").textContent = t + (r && nmOf(r) ? " · " + nmOf(r) : "");
+  if (!wasOpen) history.pushState({chart: t}, "");
+  $("chPair").innerHTML = (r && r.pair || []).map(p => { const x = BY[p] || {};
+    return `<button data-p="${p}">⇄ ดูคู่ ${p} (RSI-MA ${fmt(x.rsima)}${x.dr ? " · " + x.dr[0] + (x.dr.length > 1 ? "…" : "") : ""})</button>`; }).join("")
+    + (r && allDr(r).length ? `<span class="drs" style="align-self:center">DR ไทย: ${allDr(r).join(" ")}</span>` : "");
   if (!r || !r.f) { $("chP").textContent = "ไม่มีกราฟเก็บไว้สำหรับหุ้นตัวนี้ (เก็บเฉพาะตัวที่ RSI-MA ≥ 55)"; if (mainC) { mainC.remove(); rsiC.remove(); mainC = null; } return; }
   $("chP").textContent = "กำลังโหลด…";
   const d = await (await fetch(`data/c/${r.f}.json`)).json();
@@ -278,6 +293,7 @@ async function openChart(t) {
   const n = d.time.length; mainC.timeScale().setVisibleLogicalRange({from: Math.max(0, n - 260), to: n + 5});
 }
 const closeChart = () => $("chartWrap").classList.remove("on");
+$("chPair").onclick = e => { const b = e.target.closest("button[data-p]"); if (b) openChart(b.dataset.p); };
 $("close").onclick = () => history.state && history.state.chart ? history.back() : closeChart();
 window.onpopstate = closeChart;   // ปุ่มย้อนกลับของมือถือ = ปิดกราฟ
 

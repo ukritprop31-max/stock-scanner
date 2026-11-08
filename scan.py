@@ -102,6 +102,26 @@ def main():
         except Exception as ex:
             print(f"ข้าม {t}: {ex}")
 
+    # ประกบคู่หุ้นจีน A-share <-> H-share (ทั้งสองตัวต้องอยู่ในรอบสแกน)
+    by_t = {r["t"]: r for r in rows}
+    n_pair = 0
+    for h, a in C.load_ah_pairs().items():
+        if h in by_t and a in by_t:
+            by_t[h].setdefault("pair", []).append(a)
+            by_t[a].setdefault("pair", []).append(h)
+            n_pair += 1
+            for t in (h, a):          # ให้มีไฟล์กราฟทั้งคู่ เพื่อกดสลับดูได้
+                r = by_t[t]
+                if not r["f"]:
+                    r["f"] = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in t)
+                    df = data[t]
+                    ind = C.indicators(df)
+                    nl, nh = C.lows_highs(df)
+                    t30 = df.index[(ind["rsima"] <= R30_LEVEL).fillna(False).values]
+                    write_chart(os.path.join(cdir, r["f"] + ".json"), t, df, ind, nl, nh,
+                                t30[-1] if len(t30) else None)
+    print(f"ประกบคู่ A/H ได้ {n_pair} คู่")
+
     missing = len(tickers) - len(data)
     if missing:
         errors.append(f"ดึงข้อมูลไม่ได้ {missing} ตัว (ชื่อย่อผิดหรือเลิกซื้อขาย)")

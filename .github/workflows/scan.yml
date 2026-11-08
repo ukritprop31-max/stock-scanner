@@ -35,13 +35,14 @@ jobs:
       - run: pip install -r requirements.txt
       - name: สแกน
         run: python scan.py
-      - name: บันทึกรายชื่อ DR ล่าสุด (ถ้ามีเปลี่ยน)
+      - name: บันทึกรายชื่อ DR / คู่หุ้น A-H ล่าสุด (ถ้ามีเปลี่ยน)
         run: |
-          if ! git diff --quiet -- thai_dr_list.json; then
+          git add -N ah_pairs.json 2>/dev/null || true
+          if ! git diff --quiet -- thai_dr_list.json ah_pairs.json; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add thai_dr_list.json
-            git commit -m "อัปเดตรายชื่อ DR จาก set.or.th"
+            git add thai_dr_list.json ah_pairs.json 2>/dev/null || git add thai_dr_list.json
+            git commit -m "อัปเดตรายชื่อ DR / คู่หุ้น A-H"
             git push || echo "push ไม่สำเร็จ — รอบหน้าจะลองใหม่"
           fi
       - uses: actions/configure-pages@v5

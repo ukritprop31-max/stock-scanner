@@ -225,6 +225,57 @@ def refresh_dr_list():
     return len(added), added, removed
 
 
+# ---------------------------------------------------------------------------
+# หุ้นจีนที่จดทะเบียน 2 ตลาด (A-share เซี่ยงไฮ้/เซินเจิ้น  <->  H-share ฮ่องกง)
+# ใช้ประกบคู่ เช่น 601857.SS (PetroChina A) กับ 0857.HK (H) ซึ่งมี DR ไทย PETROCN80
+# ---------------------------------------------------------------------------
+AH_FILE = os.path.join(BASE, "ah_pairs.json")
+AH_MANUAL = {   # H -> A  (หุ้นที่มี DR ไทย ตรวจไว้เอง ใช้ก่อนข้อมูลจาก Wikidata)
+    "0857.HK": "601857.SS", "1398.HK": "601398.SS", "2318.HK": "601318.SS", "2899.HK": "601899.SS",
+    "6690.HK": "600690.SS", "1211.HK": "002594.SZ", "3750.HK": "300750.SZ", "3968.HK": "600036.SS",
+    "0300.HK": "000333.SZ", "2238.HK": "601238.SS", "1772.HK": "002460.SZ", "6680.HK": "300748.SZ",
+    "0941.HK": "600941.SS", "0981.HK": "688981.SS", "1347.HK": "688347.SS", "2359.HK": "603259.SS",
+    "6869.HK": "601869.SS", "3986.HK": "603986.SS", "6809.HK": "688008.SS", "2475.HK": "002475.SZ",
+    "2476.HK": "300476.SZ",
+}
+WIKIDATA_AH = """SELECT ?hk ?cn ?cnEx WHERE {
+  ?item p:P414 ?s1 . ?s1 ps:P414 wd:Q496672 ; pq:P249 ?hk .
+  ?item p:P414 ?s2 . ?s2 ps:P414 ?cnEx ; pq:P249 ?cn . VALUES ?cnEx { wd:Q739514 wd:Q1132622 }
+  FILTER NOT EXISTS { ?s1 pq:P582 ?e1 } FILTER NOT EXISTS { ?s2 pq:P582 ?e2 } }"""
+
+
+def load_ah_pairs():
+    """คืน dict H-share -> A-share  (ดึงจาก Wikidata ทุกครั้ง ถ้าไม่ได้ใช้ไฟล์เดิม แล้วทับด้วยรายการที่ตรวจเอง)"""
+    pairs = {}
+    try:
+        r = requests.get("https://query.wikidata.org/sparql", params={"query": WIKIDATA_AH, "format": "json"},
+                         headers={"User-Agent": "stock-scanner/1.0 (personal research; github.com/ukritprop31-max)",
+                                  "Accept": "application/sparql-results+json"}, timeout=60)
+        r.raise_for_status()
+        for b in r.json()["results"]["bindings"]:
+            hk = "".join(ch for ch in b["hk"]["value"] if ch.isdigit())
+            cn = "".join(ch for ch in b["cn"]["value"] if ch.isdigit())
+            if not hk or len(cn) != 6 or hk.startswith("46"):      # 46xx = หุ้นบุริมสิทธิ์
+                continue
+            sfx = ".SS" if b["cnEx"]["value"].endswith("Q739514") else ".SZ"
+            pairs[hk.zfill(4) + ".HK"] = cn + sfx
+        if len(pairs) > 30:
+            with open(AH_FILE, "w", encoding="utf-8") as f:
+                json.dump(pairs, f, ensure_ascii=False, indent=0, sort_keys=True)
+        print(f"A/H: Wikidata {len(pairs)} คู่")
+    except Exception as e:
+        print(f"A/H: ดึงจาก Wikidata ไม่ได้ ({e}) — ใช้ไฟล์เดิม")
+        try:
+            with open(AH_FILE, encoding="utf-8") as f:
+                pairs = json.load(f)
+        except Exception:
+            pairs = {}
+    manual_a = set(AH_MANUAL.values())
+    pairs = {h: a for h, a in pairs.items() if a not in manual_a}   # รายการที่ตรวจเองชนะ
+    pairs.update(AH_MANUAL)
+    return pairs
+
+
 def _thai_dr():
     items = load_dr()
     if not items:
