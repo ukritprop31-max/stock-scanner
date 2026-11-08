@@ -144,6 +144,87 @@ def load_dr():
         return []
 
 
+SET_DR_API = "https://www.set.or.th/api/set/dr/search?tradeDateType={t}&lang=en"
+DR_FIX = {"DCVFMVN30 ETF": "E1VFVN30.VN", "DCVFMVN DIAMOND ETF": "FUEVFVND.VN"}   # ไม่มีรหัสในวงเล็บ
+
+
+def _dr_suffix(ex):
+    rules = [("Hong Kong", "HK"), ("Shanghai", "SS"), ("Shenzhen", "SZ"), ("Tokyo", "T"),
+             ("Singapore", "SI"), ("Taiwan", "TW"), ("Paris", "PA"), ("Amsterdam", "AS"),
+             ("Milan", "MI"), ("Deutsche", "DE"), ("Copenhagen", "CO"), ("Hochiminh", "VN")]
+    for key, sfx in rules:
+        if key in (ex or ""):
+            return sfx
+    return "US"
+
+
+def dr_items_from_set(data):
+    """แปลงผลจาก API ของ set.or.th เป็นรายการ หุ้นแม่ (ชื่อย่อ Yahoo) -> DR ในไทย"""
+    import re
+    groups = {}
+    for d in data:
+        u = d.get("underlying")
+        if not u:
+            continue
+        g = groups.setdefault(u, {"ex": d.get("underlyingExchange", ""), "name": d.get("underlyingName") or u,
+                                  "cls": d.get("underlyingClassName") or "", "drs": []})
+        g["drs"].append(d["symbol"])
+    items = []
+    for u, g in groups.items():
+        m = re.search(r"\(([^()]+)\)\s*$", g["name"])
+        code = m.group(1).strip() if m else u
+        sfx = _dr_suffix(g["ex"])
+        if u in DR_FIX:
+            y = DR_FIX[u]
+        elif sfx == "US":
+            y = code.replace(".", "-")
+        elif sfx == "HK":
+            y = "".join(ch for ch in code.replace(".HK", "") if ch.isdigit()).zfill(4) + ".HK"
+        elif not m:
+            print(f"DR: ข้าม {u} (ไม่รู้รหัสหุ้นแม่)")
+            continue
+        else:
+            y = code.replace(" ", "") + "." + sfx
+        items.append({"y": y, "u": u, "name": re.sub(r"\s*\([^()]*\)\s*$", "", g["name"]).strip(),
+                      "ex": sfx, "etf": "Collective" in g["cls"], "drs": sorted(g["drs"])})
+    return sorted(items, key=lambda x: x["u"])
+
+
+def refresh_dr_list():
+    """ดึงรายชื่อ DR ล่าสุดจาก set.or.th แล้วเขียนทับ thai_dr_list.json
+    คืน (จำนวน DR ใหม่, รายชื่อ DR ใหม่, รายชื่อ DR ที่หายไป) หรือ None ถ้าดึงไม่ได้ (ใช้ไฟล์เดิมต่อ)"""
+    from datetime import date
+    sess = requests.Session()
+    sess.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                       "(KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+                         "Accept": "application/json, text/plain, */*",
+                         "Referer": "https://www.set.or.th/en/market/product/dr/marketdata"})
+    try:
+        sess.get("https://www.set.or.th/en/market/product/dr/marketdata", timeout=30)
+        data = []
+        for t in ("C", "P"):          # วันทำการล่าสุด / ก่อนหน้า (วันหยุดบางที C ว่าง)
+            r = sess.get(SET_DR_API.format(t=t), timeout=30)
+            r.raise_for_status()
+            data = r.json().get("data") or []
+            if data:
+                break
+    except Exception as e:
+        print(f"DR: ดึงจาก set.or.th ไม่ได้ ({e}) — ใช้รายชื่อเดิม")
+        return None
+    if len(data) < 100:               # กันกรณีได้หน้าเปล่า/ถูกบล็อก
+        print(f"DR: ได้ข้อมูลแค่ {len(data)} รายการ — ใช้รายชื่อเดิม")
+        return None
+    items = dr_items_from_set(data)
+    old = {d for x in load_dr() for d in x["drs"]}
+    new = {d for x in items for d in x["drs"]}
+    with open(DR_FILE, "w", encoding="utf-8") as f:
+        json.dump({"source": SET_DR_API.format(t="C"), "fetched": date.today().isoformat(), "items": items},
+                  f, ensure_ascii=False)
+    added, removed = sorted(new - old), sorted(old - new)
+    print(f"DR: อัปเดตแล้ว {len(new)} ตัว (ใหม่ {len(added)}, หายไป {len(removed)})")
+    return len(added), added, removed
+
+
 def _thai_dr():
     items = load_dr()
     if not items:

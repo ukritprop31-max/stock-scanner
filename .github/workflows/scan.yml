@@ -11,7 +11,7 @@ on:
     branches: [main]       # แก้โค้ดแล้วสแกน+อัปเดตเว็บทันที
 
 permissions:
-  contents: read
+  contents: write      # ให้บันทึกรายชื่อ DR ที่อัปเดตกลับเข้า repo
   pages: write
   id-token: write
 
@@ -35,6 +35,15 @@ jobs:
       - run: pip install -r requirements.txt
       - name: สแกน
         run: python scan.py
+      - name: บันทึกรายชื่อ DR ล่าสุด (ถ้ามีเปลี่ยน)
+        run: |
+          if ! git diff --quiet -- thai_dr_list.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add thai_dr_list.json
+            git commit -m "อัปเดตรายชื่อ DR จาก set.or.th"
+            git push || echo "push ไม่สำเร็จ — รอบหน้าจะลองใหม่"
+          fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

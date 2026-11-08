@@ -109,6 +109,7 @@
       <label><input type="checkbox" id="rib"> EMA เรียงขาขึ้น</label>
     </div>
     <div class="note">กรองทันทีเมื่อเปลี่ยนค่า · New low / New high = ต่ำสุด / สูงสุดรอบ 52 สัปดาห์ · ใส่ 0 ช่องหลัง = ไม่จำกัด · RSI 14, RSI-based MA = SMA 14 · มูลค่าซื้อขายเป็นสกุลเงินของตลาดนั้น</div>
+    <div id="info" class="note"></div>
     <div id="errs"></div>
   </div>
   </details>
@@ -162,6 +163,9 @@ async function load() {
   const d = new Date(DATA.updated);
   $("upd").textContent = `อัปเดต ${d.toLocaleString("th-TH", {dateStyle: "medium", timeStyle: "short"})} · ${DATA.count.toLocaleString()} หุ้น · ราคาปิดล่าสุดจาก Yahoo Finance`;
   $("errs").innerHTML = (DATA.errors || []).map(e => "• " + e).join("<br>");
+  const info = [...(DATA.info || [])];
+  if (DATA.dr_updated) info.push(`รายชื่อ DR ไทยอัปเดตล่าสุด ${DATA.dr_updated}`);
+  $("info").innerHTML = info.map(e => "• " + e).join("<br>");
   const saved = store.get("cloudSet") || {};
   for (const [k, v] of Object.entries(DATA.markets)) {
     const known = saved.known || ["theme","thai","nasdaq100","sp500","hangseng","dax","ftse100"];

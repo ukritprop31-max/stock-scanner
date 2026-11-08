@@ -32,7 +32,17 @@ def main():
     shutil.rmtree(cdir, ignore_errors=True)
     os.makedirs(cdir)
 
-    markets, errors = {}, []
+    markets, errors, info = {}, [], []
+    dr = C.refresh_dr_list()          # อัปเดตรายชื่อ DR จาก set.or.th ทุกครั้งที่สแกน
+    if dr is None:
+        info.append("รายชื่อ DR: ใช้ชุดล่าสุดที่เก็บไว้ (รอบนี้ดึงจาก set.or.th ไม่ได้)")
+    elif dr[0] or dr[2]:
+        msg = []
+        if dr[1]:
+            msg.append("DR ใหม่: " + ", ".join(dr[1][:30]) + (" …" if len(dr[1]) > 30 else ""))
+        if dr[2]:
+            msg.append("DR ที่ถอนออก: " + ", ".join(dr[2][:30]))
+        info.append(" · ".join(msg))
     for key, (label, _) in C.UNIVERSES.items():
         try:
             for t in C.get_universe(key):
@@ -98,7 +108,9 @@ def main():
     out = {
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "markets": {k: v[0] for k, v in C.UNIVERSES.items()},
-        "count": len(rows), "errors": errors, "rows": rows,
+        "count": len(rows), "errors": errors, "info": info,
+        "dr_updated": json.load(open(C.DR_FILE, encoding="utf-8")).get("fetched") if os.path.exists(C.DR_FILE) else None,
+        "rows": rows,
     }
     with open(os.path.join(OUT, "scan.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
