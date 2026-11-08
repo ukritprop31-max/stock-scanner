@@ -1,0 +1,41 @@
+name: สแกนหุ้นรายวัน
+
+on:
+  schedule:
+    # เวลาเป็น UTC: 11:20 UTC = 18:20 น. ไทย (หลังตลาดไทย/ฮ่องกงปิด)
+    #               21:50 UTC = 04:50 น. ไทย (หลังตลาดสหรัฐฯ ปิด)
+    - cron: "20 11 * * 1-5"
+    - cron: "50 21 * * 1-5"
+  workflow_dispatch: {}      # กดรันเองได้จากแท็บ Actions
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: สแกน
+        run: python scan.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="สแกนหุ้น">
+<title>สแกนหุ้น RSI-based MA</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root{--bg:#fff;--fg:#131722;--mut:#787b86;--line:#e0e3eb;--card:#f8f9fd;--up:#26a69a;--dn:#ef5350;--acc:#2962ff}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"IBM Plex Sans Thai",system-ui,sans-serif;background:var(--bg);color:var(--fg);font-size:15px}
+  header{padding:calc(12px + env(safe-area-inset-top)) 16px 12px;border-bottom:1px solid var(--line)}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  header .sub{color:var(--mut);font-size:13px}
+  main{max-width:1100px;margin:0 auto;padding:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
+  .card h2{font-size:14px;margin:0 0 8px;color:var(--mut);font-weight:500}
+  .unis{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px}
+  label{display:flex;align-items:center;gap:6px;cursor:pointer}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .row .f{display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--mut)}
+  input[type=number],select,input[type=search]{font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:#fff;color:var(--fg)}
+  input[type=number]{width:80px}
+  .note{font-size:12px;color:var(--mut);margin-top:6px}
+  #errs{font-size:12px;color:var(--dn)}
+  details.set>summary{cursor:pointer;font-weight:600;padding:4px 2px 10px;list-style:none}
+  details.set>summary::before{content:"▸ ";color:var(--mut)}
+  details.set[open]>summary::before{content:"▾ "}
+  .tw{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  th{font-weight:500;color:var(--mut);cursor:pointer;user-select:none;background:#fff}
+  th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:#fff}
+  tbody tr{cursor:pointer} tbody tr:hover td{background:#f0f3fa}
+  .up{color:var(--up)}.dn{color:var(--dn)}
+  .tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:4px;background:#e8f5e9;color:#1b5e20}
+  .empty{color:var(--mut);text-align:center;padding:24px}
+  #cards{display:none}
+  .sc{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:#fff;cursor:pointer}
+  .sc .top{display:flex;align-items:baseline;gap:8px}
+  .sc .top b{font-size:17px}
+  .sc .top .px{margin-left:auto;font-variant-numeric:tabular-nums}
+  .sc.nochart{opacity:.75}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{font-size:12px;background:#f0f3fa;border-radius:6px;padding:3px 7px;font-variant-numeric:tabular-nums}
+  .chip.hl{background:#fff8e1;color:#8a6100;font-weight:600}
+  #mSort{display:none;margin-bottom:8px}
+  #chartWrap{display:none;position:fixed;inset:0;background:#fff;z-index:10;flex-direction:column;height:100dvh}
+  #chartWrap.on{display:flex}
+  .ch-head{padding:calc(10px + env(safe-area-inset-top)) 14px 10px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .ch-head b{font-size:18px}
+  .ch-head button{margin-left:auto;font:inherit;border:0;border-radius:8px;background:#eee;color:#333;padding:6px 14px}
+  .legend{font-size:12px;padding:6px 14px;display:flex;flex-wrap:wrap;gap:10px}
+  .legend span::before{content:"";display:inline-block;width:10px;height:3px;margin-right:4px;vertical-align:middle;background:var(--c)}
+  #main{flex:3;min-height:0}
+  #rsiBox{flex:1.2;min-height:0;border-top:1px solid var(--line);position:relative;padding-bottom:env(safe-area-inset-bottom)}
+  #rsiLbl{position:absolute;left:12px;top:4px;font-size:12px;z-index:2;color:var(--mut)}
+  @media (max-width:700px){
+    body{font-size:16px}
+    main{padding:8px}
+    .tw{display:none}
+    #cards,#mSort{display:block}
+    input[type=number],select,input[type=search]{font-size:16px}
+    header h1{font-size:16px} header .sub{font-size:12px}
+    .legend{font-size:11px;gap:6px;padding:4px 10px}
+    #main{flex:2.6}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>สแกนหุ้น RSI-based MA</h1>
+  <div class="sub" id="upd">กำลังโหลดข้อมูล…</div>
+</header>
+<main>
+  <details class="set" id="setBox"><summary>เงื่อนไข</summary>
+  <div class="card">
+    <h2>ตลาด</h2>
+    <div class="unis" id="unis"></div>
+  </div>
+  <div class="card">
+    <div class="row">
+      <div class="f">RSI-based MA มากกว่า<input type="number" id="th" value="70" min="0" max="100"></div>
+      <div class="f">มูลค่าซื้อขายขั้นต่ำ/วัน<select id="minv">
+        <option value="0">ไม่กำหนด</option><option value="1">1 ล้าน</option>
+        <option value="10" selected>10 ล้าน</option><option value="50">50 ล้าน</option></select></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label><input type="checkbox" id="nlOn" checked> New low ครั้งล่าสุดผ่านมาแล้ว</label>
+      <input type="number" id="nlMin" value="6" min="0"> ถึง <input type="number" id="nlMax" value="12" min="0"> เดือน
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label><input type="checkbox" id="nhOn" checked> มี New high แล้ว (หลัง New low ครั้งนั้น)</label>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label><input type="checkbox" id="r30On" checked> RSI-based MA ไม่ชน 30 มาแล้ว</label>
+      <input type="number" id="r30Min" value="6" min="0"> ถึง <input type="number" id="r30Max" value="12" min="0"> เดือน
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label><input type="checkbox" id="a800"> ราคาอยู่เหนือ EMA 800</label>
+      <label><input type="checkbox" id="rib"> EMA เรียงขาขึ้น</label>
+    </div>
+    <div class="note">กรองทันทีเมื่อเปลี่ยนค่า · New low / New high = ต่ำสุด / สูงสุดรอบ 52 สัปดาห์ · ใส่ 0 ช่องหลัง = ไม่จำกัด · RSI 14, RSI-based MA = SMA 14 · มูลค่าซื้อขายเป็นสกุลเงินของตลาดนั้น</div>
+    <div id="errs"></div>
+  </div>
+  </details>
+
+  <div class="card">
+    <h2 id="resTitle">ผลลัพธ์</h2>
+    <input type="search" id="q" placeholder="หาชื่อหุ้นใดก็ได้ เช่น MRVL" style="width:100%;margin-bottom:8px">
+    <select id="mSort">
+      <option value="rsima">เรียงตาม RSI-MA มาก→น้อย</option><option value="chg">%วันนี้ มาก→น้อย</option>
+      <option value="streak">วันติด มาก→น้อย</option><option value="d800">ห่าง EMA800 มาก→น้อย</option>
+      <option value="val">มูลค่าซื้อขาย มาก→น้อย</option><option value="t">ชื่อหุ้น ก→ฮ</option>
+    </select>
+    <div id="cards"></div>
+    <div class="tw"><table>
+      <thead><tr>
+        <th data-k="t">หุ้น</th><th data-k="c">ราคา</th><th data-k="chg">%วันนี้</th>
+        <th data-k="rsima">RSI-MA</th><th data-k="rsi">RSI</th><th data-k="streak">วันติด (&gt;70)</th>
+        <th data-k="d800">ห่าง EMA800</th><th data-k="d200">ห่าง EMA200</th><th data-k="nl_m">New low (เดือนก่อน)</th>
+        <th data-k="nh_d">New high (วันก่อน)</th><th data-k="r30_m">ชน 30 (เดือนก่อน)</th>
+        <th data-k="val">มูลค่า/วัน (ล้าน)</th><th data-k="ribbon">EMA เรียง</th>
+      </tr></thead>
+      <tbody id="tb"></tbody>
+    </table></div>
+    <div class="note">แตะที่หุ้นเพื่อดูกราฟ · ช่องค้นหาจะแสดงหุ้นตัวนั้นแม้ไม่ผ่านเงื่อนไข</div>
+  </div>
+</main>
+
+<div id="chartWrap">
+  <div class="ch-head"><b id="chT"></b><span id="chP"></span><button id="close">ปิด</button></div>
+  <div class="legend">
+    <span style="--c:#F7E463">EMA 12</span><span style="--c:#F4A43B">EMA 26</span><span style="--c:#E57373">EMA 50</span>
+    <span style="--c:#4DB6AC">EMA 100</span><span style="--c:#5B7CFA">EMA 200</span><span style="--c:#AB47BC">EMA 800</span>
+  </div>
+  <div id="main"></div>
+  <div id="rsiBox"><div id="rsiLbl">RSI 14 · <span style="color:#F7A600">RSI-based MA</span></div><div id="rsi" style="height:100%"></div></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let DATA = null, rows = [], sortK = "rsima", sortD = -1;
+const DEF = ["theme", "thai", "nasdaq100", "sp500"];
+const IDS = ["th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Min","r30Max","a800","rib"];
+const fmt = (v, d = 2) => v == null ? "–" : Number(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
+const pc = v => v == null ? "–" : `<span class="${v >= 0 ? "up" : "dn"}">${v >= 0 ? "+" : ""}${fmt(v)}%</span>`;
+const store = {get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+
+async function load() {
+  try {
+    DATA = await (await fetch("data/scan.json", {cache: "no-cache"})).json();
+  } catch (e) { $("upd").textContent = "ยังไม่มีข้อมูล — รอให้ระบบสแกนรอบแรกเสร็จ"; return; }
+  const d = new Date(DATA.updated);
+  $("upd").textContent = `อัปเดต ${d.toLocaleString("th-TH", {dateStyle: "medium", timeStyle: "short"})} · ${DATA.count.toLocaleString()} หุ้น · ราคาปิดล่าสุดจาก Yahoo Finance`;
+  $("errs").innerHTML = (DATA.errors || []).map(e => "• " + e).join("<br>");
+  const saved = store.get("cloudSet") || {};
+  for (const [k, v] of Object.entries(DATA.markets)) {
+    const on = saved.unis ? saved.unis.includes(k) : DEF.includes(k);
+    $("unis").insertAdjacentHTML("beforeend", `<label><input type="checkbox" value="${k}" ${on ? "checked" : ""}> ${v}</label>`);
+  }
+  for (const id of IDS) if (id in saved) { const el = $(id); if (el.type === "checkbox") el.checked = saved[id]; else el.value = saved[id]; }
+  apply();
+}
+
+function inRange(m, mn, mx) {           // m = เดือนที่ผ่านมา (null = นานกว่าข้อมูลที่มี)
+  if (m == null) return !(mx > 0);
+  return m >= mn && !(mx > 0 && m > mx);
+}
+
+function apply() {
+  if (!DATA) return;
+  const unis = [...document.querySelectorAll("#unis input:checked")].map(x => x.value);
+  const o = {unis}; for (const id of IDS) { const el = $(id); o[id] = el.type === "checkbox" ? el.checked : el.value; }
+  store.set("cloudSet", o);
+  const q = $("q").value.trim().toUpperCase();
+  rows = DATA.rows.filter(r => {
+    if (q) return r.t.includes(q);
+    if (!r.m.some(m => unis.includes(m))) return false;
+    if (!(r.rsima > +o.th)) return false;
+    if ((r.val || 0) < +o.minv) return false;
+    if (o.nlOn && !inRange(r.nl_m, +o.nlMin, +o.nlMax)) return false;
+    if (o.nhOn && r.nh_d == null) return false;
+    if (o.r30On && !inRange(r.r30_m, +o.r30Min, +o.r30Max)) return false;
+    if (o.a800 && !r.a800) return false;
+    if (o.rib && !r.ribbon) return false;
+    return true;
+  });
+  $("resTitle").textContent = q ? `ค้นหา "${q}" ${rows.length} ตัว` : `ผ่านเงื่อนไข ${rows.length} ตัว`;
+  render();
+}
+
+function render() {
+  const r = [...rows].sort((a, b) => {
+    const x = a[sortK], y = b[sortK];
+    if (x == null) return 1; if (y == null) return -1;
+    return (x > y ? 1 : x < y ? -1 : 0) * sortD;
+  }).slice(0, 300);
+  const nlTxt = o => o.nl_m == null ? "> 4 ปี" : fmt(o.nl_m, 1);
+  const r30Txt = o => o.r30_m == null ? "> 4 ปี" : fmt(o.r30_m, 1);
+  $("tb").innerHTML = r.length ? r.map(o => `<tr data-t="${o.t}">
+    <td><b>${o.t}</b></td><td>${fmt(o.c)}</td><td>${pc(o.chg)}</td><td><b>${fmt(o.rsima)}</b></td><td>${fmt(o.rsi)}</td>
+    <td>${o.streak}</td><td>${pc(o.d800)}</td><td>${pc(o.d200)}</td><td>${nlTxt(o)}</td><td>${o.nh_d ?? "–"}</td>
+    <td>${r30Txt(o)}</td><td>${fmt(o.val, 1)}</td><td>${o.ribbon ? '<span class="tag">เรียง</span>' : ""}</td></tr>`).join("")
+    : `<tr><td colspan="13" class="empty">ไม่มีหุ้นเข้าเงื่อนไข</td></tr>`;
+  $("cards").innerHTML = r.length ? r.map(o => `<div class="sc${o.f ? "" : " nochart"}" data-t="${o.t}">
+    <div class="top"><b>${o.t}</b><span class="px">${fmt(o.c)} ${pc(o.chg)}</span></div>
+    <div class="chips">
+      <span class="chip hl">RSI-MA ${fmt(o.rsima)}</span><span class="chip">RSI ${fmt(o.rsi)}</span>
+      <span class="chip">ติด ${o.streak} วัน</span>
+      <span class="chip">EMA800 ${o.d800 == null ? "–" : (o.d800 >= 0 ? "+" : "") + fmt(o.d800, 0) + "%"}</span>
+      <span class="chip">New low ${nlTxt(o)}${o.nl_m == null ? "" : " ด."}</span>
+      <span class="chip">New high ${o.nh_d == null ? "–" : o.nh_d + " วัน"}</span>
+      <span class="chip">ชน 30 ${r30Txt(o)}${o.r30_m == null ? "" : " ด."}</span>
+      ${o.ribbon ? '<span class="chip">EMA เรียง</span>' : ""}
+    </div></div>`).join("") : `<div class="empty">ไม่มีหุ้นเข้าเงื่อนไข</div>`;
+}
+
+document.querySelector("main").addEventListener("input", e => { if (e.target.closest("#setBox") || e.target.id === "q") apply(); });
+document.querySelectorAll("th").forEach(th => th.onclick = () => { const k = th.dataset.k; sortD = sortK === k ? -sortD : -1; sortK = k; render(); });
+$("mSort").onchange = () => { sortK = $("mSort").value; sortD = sortK === "t" ? 1 : -1; render(); };
+const pick = e => { const el = e.target.closest("[data-t]"); if (el) openChart(el.dataset.t); };
+$("tb").onclick = pick; $("cards").onclick = pick;
+
+// ---------------- กราฟ ----------------
+let mainC, rsiC;
+const COLORS = {"12": "#F7E463", "26": "#F4A43B", "50": "#E57373", "100": "#4DB6AC", "200": "#5B7CFA", "800": "#AB47BC"};
+const base = {layout: {background: {color: "#fff"}, textColor: "#131722", fontFamily: "IBM Plex Sans Thai"},
+  grid: {vertLines: {color: "#f0f3fa"}, horzLines: {color: "#f0f3fa"}},
+  rightPriceScale: {borderColor: "#e0e3eb", minimumWidth: 70}, timeScale: {borderColor: "#e0e3eb"}, crosshair: {mode: 0}};
+const line = (time, arr) => time.map((t, i) => arr[i] == null ? {time: t} : {time: t, value: arr[i]});
+
+async function openChart(t) {
+  const r = DATA.rows.find(x => x.t === t);
+  $("chartWrap").classList.add("on"); $("chT").textContent = t;
+  history.pushState({chart: t}, "");
+  if (!r || !r.f) { $("chP").textContent = "ไม่มีกราฟเก็บไว้สำหรับหุ้นตัวนี้ (เก็บเฉพาะตัวที่ RSI-MA ≥ 55)"; if (mainC) { mainC.remove(); rsiC.remove(); mainC = null; } return; }
+  $("chP").textContent = "กำลังโหลด…";
+  const d = await (await fetch(`data/c/${r.f}.json`)).json();
+  if (mainC) { mainC.remove(); rsiC.remove(); }
+  mainC = LightweightCharts.createChart($("main"), {...base, autoSize: true});
+  rsiC = LightweightCharts.createChart($("rsi"), {...base, autoSize: true});
+  const cs = mainC.addCandlestickSeries({upColor: "#26a69a", downColor: "#ef5350", borderVisible: false, wickUpColor: "#26a69a", wickDownColor: "#ef5350"});
+  cs.setData(d.time.map((tm, i) => d.c[i] == null ? {time: tm} : {time: tm, open: d.o[i], high: d.h[i], low: d.l[i], close: d.c[i]}));
+  const mk = [];
+  if (d.nl) mk.push({time: d.nl, position: "belowBar", color: "#ef5350", shape: "arrowUp", text: "New low"});
+  if (d.nh) mk.push({time: d.nh, position: "aboveBar", color: "#26a69a", shape: "arrowDown", text: "New high"});
+  cs.setMarkers(mk.sort((a, b) => a.time < b.time ? -1 : 1));
+  const vs = mainC.addHistogramSeries({priceFormat: {type: "volume"}, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false});
+  mainC.priceScale("vol").applyOptions({scaleMargins: {top: .82, bottom: 0}});
+  vs.setData(d.time.map((tm, i) => ({time: tm, value: d.v[i], color: (d.c[i] >= d.o[i]) ? "rgba(38,166,154,.5)" : "rgba(239,83,80,.5)"})));
+  for (const [n, arr] of Object.entries(d.ema))
+    mainC.addLineSeries({color: COLORS[n], lineWidth: n === "800" ? 2 : 1, priceLineVisible: false, crosshairMarkerVisible: false}).setData(line(d.time, arr));
+  const rs = rsiC.addLineSeries({color: "#7E57C2", lineWidth: 1, priceLineVisible: false}); rs.setData(line(d.time, d.rsi));
+  const rm = rsiC.addLineSeries({color: "#F7A600", lineWidth: 2, priceLineVisible: false}); rm.setData(line(d.time, d.rsima));
+  if (d.r30) rm.setMarkers([{time: d.r30, position: "belowBar", color: "#ef5350", shape: "arrowUp", text: "ชน 30"}]);
+  for (const [v, st] of [[+$("th").value || 70, 2], [50, 1], [30, 2]])
+    rs.createPriceLine({price: v, color: "#9598a1", lineStyle: st, lineWidth: 1, axisLabelVisible: false});
+  $("chP").innerHTML = `${fmt(r.c)} ${pc(r.chg)}`;
+  let lock = false;
+  const sync = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange(x => { if (lock || !x) return; lock = true; b.timeScale().setVisibleLogicalRange(x); lock = false; });
+  sync(mainC, rsiC); sync(rsiC, mainC);
+  const n = d.time.length; mainC.timeScale().setVisibleLogicalRange({from: Math.max(0, n - 260), to: n + 5});
+}
+const closeChart = () => $("chartWrap").classList.remove("on");
+$("close").onclick = () => history.state && history.state.chart ? history.back() : closeChart();
+window.onpopstate = closeChart;   // ปุ่มย้อนกลับของมือถือ = ปิดกราฟ
+
+load();
+</script>
+</body>
+</html>
