@@ -49,6 +49,8 @@
   .sc.nochart{opacity:.75}
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
   .chip{font-size:12px;background:#f0f3fa;border-radius:6px;padding:3px 7px;font-variant-numeric:tabular-nums}
+  .drs{font-size:12px;color:#8a6100;margin-top:2px;font-weight:500;white-space:normal}
+  .nm{font-size:12px;color:var(--mut);margin-top:2px}
   .chip.hl{background:#fff8e1;color:#8a6100;font-weight:600}
   #mSort{display:none;margin-bottom:8px}
   #chartWrap{display:none;position:fixed;inset:0;background:#fff;z-index:10;flex-direction:column;height:100dvh}
@@ -113,7 +115,7 @@
 
   <div class="card">
     <h2 id="resTitle">ผลลัพธ์</h2>
-    <input type="search" id="q" placeholder="หาชื่อหุ้นใดก็ได้ เช่น MRVL" style="width:100%;margin-bottom:8px">
+    <input type="search" id="q" placeholder="ค้นหาหุ้นหรือ DR เช่น MRVL, MRVL23, TENCENT80, 600519" style="width:100%;margin-bottom:8px">
     <select id="mSort">
       <option value="rsima">เรียงตาม RSI-MA มาก→น้อย</option><option value="chg">%วันนี้ มาก→น้อย</option>
       <option value="streak">วันติด มาก→น้อย</option><option value="d800">ห่าง EMA800 มาก→น้อย</option>
@@ -147,7 +149,7 @@
 <script>
 const $ = id => document.getElementById(id);
 let DATA = null, rows = [], sortK = "rsima", sortD = -1;
-const DEF = ["theme", "thai", "nasdaq100", "sp500"];
+const DEF = ["theme", "thai", "thai_dr", "csi300", "nasdaq100", "sp500"];
 const IDS = ["th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Min","r30Max","a800","rib"];
 const fmt = (v, d = 2) => v == null ? "–" : Number(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
 const pc = v => v == null ? "–" : `<span class="${v >= 0 ? "up" : "dn"}">${v >= 0 ? "+" : ""}${fmt(v)}%</span>`;
@@ -162,7 +164,8 @@ async function load() {
   $("errs").innerHTML = (DATA.errors || []).map(e => "• " + e).join("<br>");
   const saved = store.get("cloudSet") || {};
   for (const [k, v] of Object.entries(DATA.markets)) {
-    const on = saved.unis ? saved.unis.includes(k) : DEF.includes(k);
+    const known = saved.known || ["theme","thai","nasdaq100","sp500","hangseng","dax","ftse100"];
+    const on = saved.unis && known.includes(k) ? saved.unis.includes(k) : DEF.includes(k);   // ตลาดใหม่ = เปิดตามค่าเริ่มต้น
     $("unis").insertAdjacentHTML("beforeend", `<label><input type="checkbox" value="${k}" ${on ? "checked" : ""}> ${v}</label>`);
   }
   for (const id of IDS) if (id in saved) { const el = $(id); if (el.type === "checkbox") el.checked = saved[id]; else el.value = saved[id]; }
@@ -177,11 +180,11 @@ function inRange(m, mn, mx) {           // m = เดือนที่ผ่า
 function apply() {
   if (!DATA) return;
   const unis = [...document.querySelectorAll("#unis input:checked")].map(x => x.value);
-  const o = {unis}; for (const id of IDS) { const el = $(id); o[id] = el.type === "checkbox" ? el.checked : el.value; }
+  const o = {unis, known: Object.keys(DATA.markets)}; for (const id of IDS) { const el = $(id); o[id] = el.type === "checkbox" ? el.checked : el.value; }
   store.set("cloudSet", o);
   const q = $("q").value.trim().toUpperCase();
   rows = DATA.rows.filter(r => {
-    if (q) return r.t.includes(q);
+    if (q) return r.t.includes(q) || (r.dr || []).some(d => d.includes(q)) || (r.nm || "").toUpperCase().includes(q);
     if (!r.m.some(m => unis.includes(m))) return false;
     if (!(r.rsima > +o.th)) return false;
     if ((r.val || 0) < +o.minv) return false;
@@ -196,6 +199,7 @@ function apply() {
   render();
 }
 
+const drTxt = o => o.dr ? "DR ไทย: " + o.dr.slice(0, 5).join(" · ") + (o.dr.length > 5 ? " …" : "") : "";
 function render() {
   const r = [...rows].sort((a, b) => {
     const x = a[sortK], y = b[sortK];
@@ -205,12 +209,13 @@ function render() {
   const nlTxt = o => o.nl_m == null ? "> 4 ปี" : fmt(o.nl_m, 1);
   const r30Txt = o => o.r30_m == null ? "> 4 ปี" : fmt(o.r30_m, 1);
   $("tb").innerHTML = r.length ? r.map(o => `<tr data-t="${o.t}">
-    <td><b>${o.t}</b></td><td>${fmt(o.c)}</td><td>${pc(o.chg)}</td><td><b>${fmt(o.rsima)}</b></td><td>${fmt(o.rsi)}</td>
+    <td><b>${o.t}</b>${drTxt(o) ? `<div class="drs">${drTxt(o)}</div>` : ""}</td><td>${fmt(o.c)}</td><td>${pc(o.chg)}</td><td><b>${fmt(o.rsima)}</b></td><td>${fmt(o.rsi)}</td>
     <td>${o.streak}</td><td>${pc(o.d800)}</td><td>${pc(o.d200)}</td><td>${nlTxt(o)}</td><td>${o.nh_d ?? "–"}</td>
     <td>${r30Txt(o)}</td><td>${fmt(o.val, 1)}</td><td>${o.ribbon ? '<span class="tag">เรียง</span>' : ""}</td></tr>`).join("")
     : `<tr><td colspan="13" class="empty">ไม่มีหุ้นเข้าเงื่อนไข</td></tr>`;
   $("cards").innerHTML = r.length ? r.map(o => `<div class="sc${o.f ? "" : " nochart"}" data-t="${o.t}">
     <div class="top"><b>${o.t}</b><span class="px">${fmt(o.c)} ${pc(o.chg)}</span></div>
+    ${o.nm ? `<div class="nm">${o.nm}</div>` : ""}${drTxt(o) ? `<div class="drs">${drTxt(o)}</div>` : ""}
     <div class="chips">
       <span class="chip hl">RSI-MA ${fmt(o.rsima)}</span><span class="chip">RSI ${fmt(o.rsi)}</span>
       <span class="chip">ติด ${o.streak} วัน</span>

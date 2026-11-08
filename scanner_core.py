@@ -114,12 +114,51 @@ def _hangseng():
     return out
 
 
+def _csi300():
+    """หุ้นจีนแผ่นดินใหญ่ CSI 300 (ตลาดเซี่ยงไฮ้ .SS / เซินเจิ้น .SZ)"""
+    t, c = _find_col(_wiki_tables("CSI_300_Index"), ["Ticker"])
+    out = []
+    for s in t[c].dropna():
+        s = str(s).upper()
+        code = "".join(ch for ch in s if ch.isdigit())
+        if len(code) != 6:
+            continue
+        if "SZ" in s:
+            out.append(code + ".SZ")
+        elif "SS" in s or "SH" in s:
+            out.append(code + ".SS")
+        else:   # เดาจากรหัส: 6xxxxx = เซี่ยงไฮ้, 0/3xxxxx = เซินเจิ้น
+            out.append(code + (".SS" if code.startswith("6") else ".SZ"))
+    return out
+
+
+DR_FILE = os.path.join(BASE, "thai_dr_list.json")
+
+
+def load_dr():
+    """รายชื่อ DR ในตลาดหุ้นไทย -> หุ้นแม่ใน Yahoo (ไฟล์ thai_dr_list.json ดึงจาก set.or.th)"""
+    try:
+        with open(DR_FILE, encoding="utf-8") as f:
+            return json.load(f)["items"]
+    except Exception:
+        return []
+
+
+def _thai_dr():
+    items = load_dr()
+    if not items:
+        raise ValueError("ไม่พบไฟล์ thai_dr_list.json")
+    return [x["y"] for x in items]
+
+
 UNIVERSES = {
     "theme":    ("หุ้นตามธีมที่คุยกัน (~30)", lambda: THEME_LIST),
     "thai":     ("หุ้นไทยตัวใหญ่ (~50)", lambda: [s + ".BK" for s in THAI_LARGE]),
     "nasdaq100": ("Nasdaq-100 (สหรัฐฯ)", _nasdaq100),
     "sp500":    ("S&P 500 (สหรัฐฯ)", _sp500),
     "hangseng": ("Hang Seng (ฮ่องกง)", _hangseng),
+    "csi300":   ("หุ้นจีน CSI 300 (เซี่ยงไฮ้/เซินเจิ้น)", _csi300),
+    "thai_dr":  ("หุ้นแม่ของ DR ในตลาดไทย (~360)", _thai_dr),
     "dax":      ("DAX 40 (เยอรมนี)", _dax),
     "ftse100":  ("FTSE 100 (อังกฤษ)", _ftse100),
 }
