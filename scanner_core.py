@@ -190,6 +190,9 @@ def dr_items_from_set(data):
     return sorted(items, key=lambda x: x["u"])
 
 
+DR_QUOTES = {}   # ราคา DR ล่าสุดจาก set.or.th: {"PETROCN80": {"px":..,"chg":..,"val":..,"iss":..,"ratio":..}}
+
+
 def refresh_dr_list():
     """ดึงรายชื่อ DR ล่าสุดจาก set.or.th แล้วเขียนทับ thai_dr_list.json
     คืน (จำนวน DR ใหม่, รายชื่อ DR ใหม่, รายชื่อ DR ที่หายไป) หรือ None ถ้าดึงไม่ได้ (ใช้ไฟล์เดิมต่อ)"""
@@ -215,6 +218,13 @@ def refresh_dr_list():
         print(f"DR: ได้ข้อมูลแค่ {len(data)} รายการ — ใช้รายชื่อเดิม")
         return None
     items = dr_items_from_set(data)
+    for d in data:
+        px = d.get("last") or d.get("prior")
+        DR_QUOTES[d["symbol"]] = {
+            "px": px, "chg": round(d["percentChange"], 2) if d.get("percentChange") is not None else None,
+            "val": round((d.get("totalValue") or 0) / 1e6, 2),          # ล้านบาท
+            "iss": d.get("issuer"), "ratio": d.get("conversionRatio"),
+        }
     old = {d for x in load_dr() for d in x["drs"]}
     new = {d for x in items for d in x["drs"]}
     with open(DR_FILE, "w", encoding="utf-8") as f:

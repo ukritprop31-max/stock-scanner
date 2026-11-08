@@ -128,7 +128,7 @@ def main():
     out = {
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "markets": {k: v[0] for k, v in C.UNIVERSES.items()},
-        "count": len(rows), "errors": errors, "info": info,
+        "count": len(rows), "errors": errors, "info": info, "drq": C.DR_QUOTES,
         "dr_updated": json.load(open(C.DR_FILE, encoding="utf-8")).get("fetched") if os.path.exists(C.DR_FILE) else None,
         "rows": rows,
     }

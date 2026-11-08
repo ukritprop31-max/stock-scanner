@@ -52,6 +52,10 @@
   .drs{font-size:12px;color:#8a6100;margin-top:2px;font-weight:500;white-space:normal}
   .nm{font-size:12px;color:var(--mut);margin-top:2px}
   .pair{font-size:12px;margin-top:6px;padding:5px 8px;border-radius:6px;background:#eef2ff;color:#1e3a8a;white-space:normal;cursor:pointer;text-align:left}
+  .drbox{margin-top:8px;border:1px solid #f3d27a;background:#fffaf0;border-radius:8px;padding:6px 8px}
+  .drh{font-size:12px;font-weight:600;color:#8a6100;margin-bottom:3px}
+  .drr{display:grid;grid-template-columns:minmax(92px,auto) 70px 64px 1fr;gap:6px;font-size:13px;padding:2px 0;font-variant-numeric:tabular-nums;align-items:baseline}
+  .drr .mut{font-size:11px;color:var(--mut)}
   .chpair{font-size:12px;padding:4px 14px 6px;display:flex;gap:6px;flex-wrap:wrap}
   .chpair button{font:inherit;border:1px solid #c7d2fe;background:#eef2ff;color:#1e3a8a;border-radius:6px;padding:3px 8px}
   .chip.hl{background:#fff8e1;color:#8a6100;font-weight:600}
@@ -88,6 +92,7 @@
   <div class="card">
     <h2>ตลาด</h2>
     <div class="unis" id="unis"></div>
+    <label style="margin-top:10px"><input type="checkbox" id="drOnly"> แสดงเฉพาะหุ้นที่มี DR ในตลาดไทย</label>
   </div>
   <div class="card">
     <div class="row">
@@ -155,7 +160,7 @@
 const $ = id => document.getElementById(id);
 let DATA = null, BY = {}, rows = [], sortK = "rsima", sortD = -1;
 const DEF = ["theme", "thai", "thai_dr", "csi300", "nasdaq100", "sp500"];
-const IDS = ["th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Min","r30Max","a800","rib"];
+const IDS = ["drOnly","th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Min","r30Max","a800","rib"];
 const fmt = (v, d = 2) => v == null ? "–" : Number(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
 const pc = v => v == null ? "–" : `<span class="${v >= 0 ? "up" : "dn"}">${v >= 0 ? "+" : ""}${fmt(v)}%</span>`;
 const store = {get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -196,6 +201,7 @@ function apply() {
     if (q) return r.t.includes(q) || allDr(r).some(d => d.includes(q)) || (r.nm || "").toUpperCase().includes(q)
       || (r.pair || []).some(p => p.includes(q) || ((BY[p] || {}).nm || "").toUpperCase().includes(q));
     if (!r.m.some(m => unis.includes(m))) return false;
+    if (o.drOnly && !allDr(r).length) return false;
     if (!(r.rsima > +o.th)) return false;
     if ((r.val || 0) < +o.minv) return false;
     if (o.nlOn && !inRange(r.nl_m, +o.nlMin, +o.nlMax)) return false;
@@ -213,7 +219,18 @@ const allDr = r => [...(r.dr || []), ...(r.pair || []).flatMap(p => (BY[p] || {}
 const nmOf = o => o.nm || (o.pair || []).map(p => (BY[p] || {}).nm).find(Boolean) || "";
 const side = t => t.endsWith(".HK") ? "H" : "A";
 const pairHtml = o => (o.pair || []).map(p => { const r = BY[p] || {};
-  return `<div class="pair" data-t="${p}">⇄ คู่${side(p) === "H" ? "ฮ่องกง (H)" : "จีน (A)"} <b>${p}</b> · ${fmt(r.c)} ${pc(r.chg)} · RSI-MA <b>${fmt(r.rsima)}</b>${r.dr ? ` · DR ไทย: ${r.dr.join(" ")}` : ""}</div>`; }).join("");
+  return `<div class="pair" data-t="${p}">⇄ คู่${side(p) === "H" ? "ฮ่องกง (H)" : "จีน (A)"} <b>${p}</b> · ${fmt(r.c)} ${pc(r.chg)} · RSI-MA <b>${fmt(r.rsima)}</b></div>`; }).join("");
+function drBox(o) {
+  const groups = [];
+  if (o.dr) groups.push(["", o.dr]);
+  for (const p of o.pair || []) { const x = BY[p] || {}; if (x.dr) groups.push([` (อิงหุ้นคู่ ${p})`, x.dr]); }
+  if (!groups.length) return "";
+  const Q = DATA.drq || {};
+  return groups.map(([via, list]) => `<div class="drbox"><div class="drh">🇹🇭 DR ในตลาดไทย${via}</div>` +
+    [...list].sort((a, b) => ((Q[b] || {}).val || 0) - ((Q[a] || {}).val || 0)).map(s => { const q = Q[s] || {};
+      return `<div class="drr"><b>${s}</b><span>${q.px != null ? "฿" + fmt(q.px) : ""}</span><span>${q.chg != null ? pc(q.chg) : ""}</span>` +
+        `<span class="mut">${[q.iss, q.val ? "มูลค่า " + fmt(q.val, 1) + " ล." : ""].filter(Boolean).join(" · ")}</span></div>`; }).join("") + `</div>`).join("");
+}
 const drTxt = o => o.dr ? "DR ไทย: " + o.dr.slice(0, 5).join(" · ") + (o.dr.length > 5 ? " …" : "") : "";
 function render() {
   const r = [...rows].sort((a, b) => {
@@ -230,7 +247,7 @@ function render() {
     : `<tr><td colspan="13" class="empty">ไม่มีหุ้นเข้าเงื่อนไข</td></tr>`;
   $("cards").innerHTML = r.length ? r.map(o => `<div class="sc${o.f ? "" : " nochart"}" data-t="${o.t}">
     <div class="top"><b>${o.t}</b><span class="px">${fmt(o.c)} ${pc(o.chg)}</span></div>
-    ${nmOf(o) ? `<div class="nm">${nmOf(o)}</div>` : ""}${drTxt(o) ? `<div class="drs">${drTxt(o)}</div>` : ""}${pairHtml(o)}
+    ${nmOf(o) ? `<div class="nm">${nmOf(o)}</div>` : ""}${pairHtml(o)}${drBox(o)}
     <div class="chips">
       <span class="chip hl">RSI-MA ${fmt(o.rsima)}</span><span class="chip">RSI ${fmt(o.rsi)}</span>
       <span class="chip">ติด ${o.streak} วัน</span>
@@ -263,7 +280,8 @@ async function openChart(t) {
   if (!wasOpen) history.pushState({chart: t}, "");
   $("chPair").innerHTML = (r && r.pair || []).map(p => { const x = BY[p] || {};
     return `<button data-p="${p}">⇄ ดูคู่ ${p} (RSI-MA ${fmt(x.rsima)}${x.dr ? " · " + x.dr[0] + (x.dr.length > 1 ? "…" : "") : ""})</button>`; }).join("")
-    + (r && allDr(r).length ? `<span class="drs" style="align-self:center">DR ไทย: ${allDr(r).join(" ")}</span>` : "");
+    + (r && allDr(r).length ? `<span class="drs" style="align-self:center">DR ไทย: ${allDr(r).map(s => { const q = (DATA.drq || {})[s] || {};
+        return s + (q.px != null ? ` ฿${fmt(q.px)}` : "") + (q.chg != null ? ` (${q.chg >= 0 ? "+" : ""}${fmt(q.chg)}%)` : ""); }).join(" · ")}</span>` : "");
   if (!r || !r.f) { $("chP").textContent = "ไม่มีกราฟเก็บไว้สำหรับหุ้นตัวนี้ (เก็บเฉพาะตัวที่ RSI-MA ≥ 55)"; if (mainC) { mainC.remove(); rsiC.remove(); mainC = null; } return; }
   $("chP").textContent = "กำลังโหลด…";
   const d = await (await fetch(`data/c/${r.f}.json`)).json();
