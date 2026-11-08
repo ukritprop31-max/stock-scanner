@@ -204,13 +204,19 @@ def refresh_dr_list():
                          "Referer": "https://www.set.or.th/en/market/product/dr/marketdata"})
     try:
         sess.get("https://www.set.or.th/en/market/product/dr/marketdata", timeout=30)
-        data = []
-        for t in ("C", "P"):          # วันทำการล่าสุด / ก่อนหน้า (วันหยุดบางที C ว่าง)
-            r = sess.get(SET_DR_API.format(t=t), timeout=30)
-            r.raise_for_status()
-            data = r.json().get("data") or []
-            if data:
-                break
+        got = {}
+        for t in ("C", "P"):          # C = วันทำการปัจจุบัน/ถัดไป, P = วันทำการก่อนหน้า (มีราคาปิดแน่นอน)
+            try:
+                r = sess.get(SET_DR_API.format(t=t), timeout=30)
+                r.raise_for_status()
+                got[t] = r.json().get("data") or []
+            except Exception as e:
+                print(f"DR: ดึงชุด {t} ไม่ได้ ({e})")
+                got[t] = []
+        # รายชื่อ: รวมทั้งสองชุด (DR ใหม่จะโผล่ในชุด C ก่อน)
+        merged = {d["symbol"]: d for d in got["P"]}
+        merged.update({d["symbol"]: d for d in got["C"] if d.get("underlying")})
+        data = list(merged.values())
     except Exception as e:
         print(f"DR: ดึงจาก set.or.th ไม่ได้ ({e}) — ใช้รายชื่อเดิม")
         return None
@@ -218,7 +224,14 @@ def refresh_dr_list():
         print(f"DR: ได้ข้อมูลแค่ {len(data)} รายการ — ใช้รายชื่อเดิม")
         return None
     items = dr_items_from_set(data)
+    cur = {d["symbol"]: d for d in got["C"]}
+    prev = {d["symbol"]: d for d in got["P"]}
     for d in data:
+        c = cur.get(d["symbol"]) or {}
+        if c.get("last"):              # มีการซื้อขายแล้ววันนี้ (เช่น รอบกลางคืน) ใช้ราคาล่าสุด
+            d = {**d, **{k: c.get(k) for k in ("last", "percentChange", "totalValue")}}
+        elif d["symbol"] in prev:
+            d = prev[d["symbol"]]
         px = d.get("last") or d.get("prior")
         DR_QUOTES[d["symbol"]] = {
             "px": px, "chg": round(d["percentChange"], 2) if d.get("percentChange") is not None else None,
