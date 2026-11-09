@@ -81,6 +81,13 @@ def main():
                     streak += 1
                 else:
                     break
+            # ค่าต่ำสุดสะสมของ RSI-MA ย้อนหลังจากวันนี้ -> ใช้หาว่า "ชนระดับ L ครั้งล่าสุดเมื่อไหร่" ได้ทุกระดับในหน้าเว็บ
+            rmin, cur = [], 1e9
+            rs = ind["rsima"].dropna()
+            for dt, v in zip(rs.index[::-1], rs.values[::-1]):
+                if v < cur:
+                    cur = float(v)
+                    rmin.append([(today - dt).days, round(cur, 2)])
             safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in t)
             has_chart = rsima >= CHART_MIN_RSIMA or any(m in always_chart for m in markets[t])
             rows.append({
@@ -91,7 +98,7 @@ def main():
                 "ribbon": ribbon, "a800": bool(e[800] and close > e[800]),
                 "val": C._f(float(df["Volume"].tail(20).mean() or 0) * close / 1e6, 1),
                 "nl_m": months(today, nl), "nh_d": (today - nh).days if nh is not None else None,
-                "r30_m": months(today, r30), "date": today.strftime("%Y-%m-%d"),
+                "r30_m": months(today, r30), "rmin": rmin, "date": today.strftime("%Y-%m-%d"),
                 "f": safe if has_chart else None,
             })
             if t in dr_map:

@@ -121,8 +121,14 @@
       <label><input type="checkbox" id="nhOn" checked> มี New high แล้ว (หลัง New low ครั้งนั้น)</label>
     </div>
     <div class="row" style="margin-top:8px">
-      <label><input type="checkbox" id="r30On" checked> RSI-based MA ไม่ชน 30 มาแล้ว</label>
+      <label><input type="checkbox" id="r30On" checked> RSI-based MA ไม่ชน</label>
+      <input type="number" id="r30Lv" value="30" min="1" max="99" style="width:60px"> มาแล้ว
       <input type="number" id="r30Min" value="6" min="0"> ถึง <input type="number" id="r30Max" value="12" min="0"> เดือน
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label><input type="checkbox" id="r40On" checked> RSI-based MA ไม่ชน</label>
+      <input type="number" id="r40Lv" value="40" min="1" max="99" style="width:60px"> มาแล้ว
+      <input type="number" id="r40Min" value="1" min="0"> ถึง <input type="number" id="r40Max" value="12" min="0"> เดือน
     </div>
     <div class="row" style="margin-top:8px">
       <span>เส้นตัดขาดทุน: ต่ำกว่า EMA 12</span>
@@ -152,7 +158,7 @@
         <th data-k="t">หุ้น</th><th data-k="c">ราคา</th><th data-k="chg">%วันนี้</th>
         <th data-k="rsima">RSI-MA</th><th data-k="rsi">RSI</th><th data-k="streak">วันติด (&gt;70)</th>
         <th data-k="d800">ห่าง EMA800</th><th data-k="d200">ห่าง EMA200</th><th data-k="nl_m">New low (เดือนก่อน)</th>
-        <th data-k="nh_d">New high (วันก่อน)</th><th data-k="r30_m">ชน 30 (เดือนก่อน)</th>
+        <th data-k="nh_d">New high (วันก่อน)</th><th data-k="t30" id="h30">ชน 30 (เดือนก่อน)</th><th data-k="t40" id="h40">ชน 40 (เดือนก่อน)</th>
         <th data-k="e12">ตัดขาดทุน</th><th data-k="val">มูลค่า/วัน (ล้าน)</th><th data-k="ribbon">EMA เรียง</th>
       </tr></thead>
       <tbody id="tb"></tbody>
@@ -176,7 +182,7 @@
 const $ = id => document.getElementById(id);
 let DATA = null, BY = {}, rows = [], sortK = "rsima", sortD = -1;
 const DEF = ["theme", "thai", "thai_dr", "csi300", "nasdaq100", "sp500"];
-const IDS = ["slPct","drOnly","th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Min","r30Max","a800","rib"];
+const IDS = ["slPct","drOnly","th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Lv","r30Min","r30Max","r40On","r40Lv","r40Min","r40Max","a800","rib"];
 const fmt = (v, d = 2) => v == null ? "–" : Number(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
 const pc = v => v == null ? "–" : `<span class="${v >= 0 ? "up" : "dn"}">${v >= 0 ? "+" : ""}${fmt(v)}%</span>`;
 const store = {get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -202,6 +208,13 @@ async function load() {
   apply();
 }
 
+// RSI-MA แตะหรือต่ำกว่าระดับ L ครั้งล่าสุดกี่เดือนก่อน (null = ไม่เคยในข้อมูลที่มี ~4 ปี)
+function touchM(r, L) {
+  if (!r.rmin) return L === 30 ? r.r30_m : null;
+  for (const [d, v] of r.rmin) if (v <= L) return Math.round(d / 30.44 * 10) / 10;
+  return null;
+}
+const lv = (id, def) => +$(id).value || def;
 function inRange(m, mn, mx) {           // m = เดือนที่ผ่านมา (null = นานกว่าข้อมูลที่มี)
   if (m == null) return !(mx > 0);
   return m >= mn && !(mx > 0 && m > mx);
@@ -222,7 +235,8 @@ function apply() {
     if ((r.val || 0) < +o.minv) return false;
     if (o.nlOn && !inRange(r.nl_m, +o.nlMin, +o.nlMax)) return false;
     if (o.nhOn && r.nh_d == null) return false;
-    if (o.r30On && !inRange(r.r30_m, +o.r30Min, +o.r30Max)) return false;
+    if (o.r30On && !inRange(touchM(r, +o.r30Lv || 30), +o.r30Min, +o.r30Max)) return false;
+    if (o.r40On && !inRange(touchM(r, +o.r40Lv || 40), +o.r40Min, +o.r40Max)) return false;
     if (o.a800 && !r.a800) return false;
     if (o.rib && !r.ribbon) return false;
     return true;
@@ -258,19 +272,23 @@ function drBox(o) {
         `${[q.iss, q.val ? "มูลค่า " + fmt(q.val, 1) + " ล." : ""].filter(Boolean).join(" · ")}</span></div>`; }).join("") + `</div>`).join("");
 }
 const drTxt = o => o.dr ? "DR ไทย: " + o.dr.slice(0, 5).join(" · ") + (o.dr.length > 5 ? " …" : "") : "";
+let L30 = 30, L40 = 40;
 function render() {
+  L30 = lv("r30Lv", 30); L40 = lv("r40Lv", 40);
+  $("h30").textContent = `ชน ${L30} (เดือนก่อน)`; $("h40").textContent = `ชน ${L40} (เดือนก่อน)`;
+  for (const r of rows) { r.t30 = touchM(r, L30); r.t40 = touchM(r, L40); }
   const r = [...rows].sort((a, b) => {
     const x = a[sortK], y = b[sortK];
     if (x == null) return 1; if (y == null) return -1;
     return (x > y ? 1 : x < y ? -1 : 0) * sortD;
   }).slice(0, 300);
   const nlTxt = o => o.nl_m == null ? "> 4 ปี" : fmt(o.nl_m, 1);
-  const r30Txt = o => o.r30_m == null ? "> 4 ปี" : fmt(o.r30_m, 1);
+  const tTxt = m => m == null ? "> 4 ปี" : fmt(m, 1);
   $("tb").innerHTML = r.length ? r.map(o => `<tr data-t="${o.t}">
     <td><b>${o.t}</b>${drTxt(o) ? `<div class="drs">${drTxt(o)}</div>` : ""}${pairHtml(o)}</td><td>${fmt(o.c)}</td><td>${pc(o.chg)}</td><td><b>${fmt(o.rsima)}</b></td><td>${fmt(o.rsi)}</td>
     <td>${o.streak}</td><td>${pc(o.d800)}</td><td>${pc(o.d200)}</td><td>${nlTxt(o)}</td><td>${o.nh_d ?? "–"}</td>
-    <td>${r30Txt(o)}</td><td>${stopOf(o) == null ? "–" : fmt(stopOf(o)) + ` <span class="dn">(${fmt((stopOf(o) / o.c - 1) * 100, 1)}%)</span>`}</td><td>${fmt(o.val, 1)}</td><td>${o.ribbon ? '<span class="tag">เรียง</span>' : ""}</td></tr>`).join("")
-    : `<tr><td colspan="14" class="empty">ไม่มีหุ้นเข้าเงื่อนไข</td></tr>`;
+    <td>${tTxt(o.t30)}</td><td>${tTxt(o.t40)}</td><td>${stopOf(o) == null ? "–" : fmt(stopOf(o)) + ` <span class="dn">(${fmt((stopOf(o) / o.c - 1) * 100, 1)}%)</span>`}</td><td>${fmt(o.val, 1)}</td><td>${o.ribbon ? '<span class="tag">เรียง</span>' : ""}</td></tr>`).join("")
+    : `<tr><td colspan="15" class="empty">ไม่มีหุ้นเข้าเงื่อนไข</td></tr>`;
   $("cards").innerHTML = r.length ? r.map(o => `<div class="sc${o.f ? "" : " nochart"}" data-t="${o.t}">
     <div class="top"><b>${o.t}</b><span class="px">${fmt(o.c)} ${pc(o.chg)}</span></div>
     ${nmOf(o) ? `<div class="nm">${nmOf(o)}</div>` : ""}${stopHtml(o)}${pairHtml(o)}${drBox(o)}
@@ -280,7 +298,8 @@ function render() {
       <span class="chip">EMA800 ${o.d800 == null ? "–" : (o.d800 >= 0 ? "+" : "") + fmt(o.d800, 0) + "%"}</span>
       <span class="chip">New low ${nlTxt(o)}${o.nl_m == null ? "" : " ด."}</span>
       <span class="chip">New high ${o.nh_d == null ? "–" : o.nh_d + " วัน"}</span>
-      <span class="chip">ชน 30 ${r30Txt(o)}${o.r30_m == null ? "" : " ด."}</span>
+      <span class="chip">ชน ${L30} ${tTxt(o.t30)}${o.t30 == null ? "" : " ด."}</span>
+      <span class="chip">ชน ${L40} ${tTxt(o.t40)}${o.t40 == null ? "" : " ด."}</span>
       ${o.ribbon ? '<span class="chip">EMA เรียง</span>' : ""}
     </div></div>`).join("") : `<div class="empty">ไม่มีหุ้นเข้าเงื่อนไข</div>`;
 }
@@ -333,7 +352,10 @@ async function openChart(t) {
     mainC.addLineSeries({color: COLORS[n], lineWidth: n === "800" ? 2 : 1, priceLineVisible: false, crosshairMarkerVisible: false}).setData(line(d.time, arr));
   const rs = rsiC.addLineSeries({color: "#7E57C2", lineWidth: 1, priceLineVisible: false}); rs.setData(line(d.time, d.rsi));
   const rm = rsiC.addLineSeries({color: "#F7A600", lineWidth: 2, priceLineVisible: false}); rm.setData(line(d.time, d.rsima));
-  if (d.r30) rm.setMarkers([{time: d.r30, position: "belowBar", color: "#ef5350", shape: "arrowUp", text: "ชน 30"}]);
+  const lastTouch = L => { for (let i = d.rsima.length - 1; i >= 0; i--) if (d.rsima[i] != null && d.rsima[i] <= L) return d.time[i]; return null; };
+  const rmk = [[lv("r30Lv", 30), "#ef5350"], [lv("r40Lv", 40), "#f57c00"]].map(([L, c]) => [lastTouch(L), L, c]).filter(x => x[0])
+    .map(([t, L, c]) => ({time: t, position: "belowBar", color: c, shape: "arrowUp", text: "ชน " + L}));
+  const seen = {}; rm.setMarkers(rmk.filter(m => !seen[m.time] && (seen[m.time] = 1)).sort((a, b) => a.time < b.time ? -1 : 1));
   for (const [v, st] of [[+$("th").value || 70, 2], [50, 1], [30, 2]])
     rs.createPriceLine({price: v, color: "#9598a1", lineStyle: st, lineWidth: 1, axisLabelVisible: false});
   $("chP").innerHTML = `${fmt(r.c)} ${pc(r.chg)}`;
