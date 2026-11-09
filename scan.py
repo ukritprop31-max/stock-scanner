@@ -85,7 +85,7 @@ def main():
             has_chart = rsima >= CHART_MIN_RSIMA or any(m in always_chart for m in markets[t])
             rows.append({
                 "t": t, "m": markets[t], "c": C._f(close, 4), "chg": C._f((close / prev - 1) * 100),
-                "rsi": C._f(ind["rsi"].iloc[-1]), "rsima": rsima, "streak": streak,
+                "rsi": C._f(ind["rsi"].iloc[-1]), "rsima": rsima, "streak": streak, "e12": e[12],
                 "d800": C._f((close / e[800] - 1) * 100) if e[800] else None,
                 "d200": C._f((close / e[200] - 1) * 100) if e[200] else None,
                 "ribbon": ribbon, "a800": bool(e[800] and close > e[800]),

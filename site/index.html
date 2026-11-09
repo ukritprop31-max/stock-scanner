@@ -52,6 +52,8 @@
   .drs{font-size:12px;color:#8a6100;margin-top:2px;font-weight:500;white-space:normal}
   .nm{font-size:12px;color:var(--mut);margin-top:2px}
   .pair{font-size:12px;margin-top:6px;padding:5px 8px;border-radius:6px;background:#eef2ff;color:#1e3a8a;white-space:normal;cursor:pointer;text-align:left}
+  .stop{font-size:13px;margin-top:6px;color:#c62828;font-weight:600}
+  .stop .mut{font-weight:400;color:var(--mut);font-size:12px}
   .drbox{margin-top:8px;border:1px solid #f3d27a;background:#fffaf0;border-radius:8px;padding:6px 8px}
   .drh{font-size:12px;font-weight:600;color:#8a6100;margin-bottom:3px}
   .drr{display:grid;grid-template-columns:minmax(92px,auto) 70px 64px 1fr;gap:6px;font-size:13px;padding:2px 0;font-variant-numeric:tabular-nums;align-items:baseline}
@@ -113,6 +115,10 @@
       <input type="number" id="r30Min" value="6" min="0"> ถึง <input type="number" id="r30Max" value="12" min="0"> เดือน
     </div>
     <div class="row" style="margin-top:8px">
+      <span>เส้นตัดขาดทุน: ต่ำกว่า EMA 12</span>
+      <input type="number" id="slPct" value="15" min="1" max="50" step="0.5" style="width:70px"> %
+    </div>
+    <div class="row" style="margin-top:8px">
       <label><input type="checkbox" id="a800"> ราคาอยู่เหนือ EMA 800</label>
       <label><input type="checkbox" id="rib"> EMA เรียงขาขึ้น</label>
     </div>
@@ -137,7 +143,7 @@
         <th data-k="rsima">RSI-MA</th><th data-k="rsi">RSI</th><th data-k="streak">วันติด (&gt;70)</th>
         <th data-k="d800">ห่าง EMA800</th><th data-k="d200">ห่าง EMA200</th><th data-k="nl_m">New low (เดือนก่อน)</th>
         <th data-k="nh_d">New high (วันก่อน)</th><th data-k="r30_m">ชน 30 (เดือนก่อน)</th>
-        <th data-k="val">มูลค่า/วัน (ล้าน)</th><th data-k="ribbon">EMA เรียง</th>
+        <th data-k="e12">ตัดขาดทุน</th><th data-k="val">มูลค่า/วัน (ล้าน)</th><th data-k="ribbon">EMA เรียง</th>
       </tr></thead>
       <tbody id="tb"></tbody>
     </table></div>
@@ -160,7 +166,7 @@
 const $ = id => document.getElementById(id);
 let DATA = null, BY = {}, rows = [], sortK = "rsima", sortD = -1;
 const DEF = ["theme", "thai", "thai_dr", "csi300", "nasdaq100", "sp500"];
-const IDS = ["drOnly","th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Min","r30Max","a800","rib"];
+const IDS = ["slPct","drOnly","th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Min","r30Max","a800","rib"];
 const fmt = (v, d = 2) => v == null ? "–" : Number(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
 const pc = v => v == null ? "–" : `<span class="${v >= 0 ? "up" : "dn"}">${v >= 0 ? "+" : ""}${fmt(v)}%</span>`;
 const store = {get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -220,6 +226,13 @@ const nmOf = o => o.nm || (o.pair || []).map(p => (BY[p] || {}).nm).find(Boolean
 const side = t => t.endsWith(".HK") ? "H" : "A";
 const pairHtml = o => (o.pair || []).map(p => { const r = BY[p] || {};
   return `<div class="pair" data-t="${p}">⇄ คู่${side(p) === "H" ? "ฮ่องกง (H)" : "จีน (A)"} <b>${p}</b> · ${fmt(r.c)} ${pc(r.chg)} · RSI-MA <b>${fmt(r.rsima)}</b></div>`; }).join("");
+const slPct = () => Math.min(Math.max(+$("slPct").value || 15, 0.1), 99);
+const stopOf = o => o.e12 != null ? o.e12 * (1 - slPct() / 100) : null;      // ราคาตัดขาดทุน = EMA12 x (1 - %)
+function stopHtml(o) {
+  const s = stopOf(o); if (s == null) return "";
+  const dist = (s / o.c - 1) * 100;
+  return `<div class="stop">🔻 ตัดขาดทุน ${fmt(s)} <span class="mut">(EMA12 ${fmt(o.e12)} −${fmt(slPct(), 1)}% · ห่างจากราคา ${fmt(dist, 1)}%)</span></div>`;
+}
 function drBox(o) {
   const groups = [];
   if (o.dr) groups.push(["", o.dr]);
@@ -228,8 +241,11 @@ function drBox(o) {
   const Q = DATA.drq || {};
   return groups.map(([via, list]) => `<div class="drbox"><div class="drh">🇹🇭 DR ในตลาดไทย${via}</div>` +
     [...list].sort((a, b) => ((Q[b] || {}).val || 0) - ((Q[a] || {}).val || 0)).map(s => { const q = Q[s] || {};
+      const base = via ? BY[via.match(/คู่ (\S+)\)/)[1]] : o, st = stopOf(base);
+      const drStop = st != null && q.px != null && base.c ? q.px * st / base.c : null;   // ประมาณ: DR วิ่งตามหุ้นแม่ในสัดส่วนเดียวกัน
       return `<div class="drr"><b>${s}</b><span>${q.px != null ? "฿" + fmt(q.px) : ""}</span><span>${q.chg != null ? pc(q.chg) : ""}</span>` +
-        `<span class="mut">${[q.iss, q.val ? "มูลค่า " + fmt(q.val, 1) + " ล." : ""].filter(Boolean).join(" · ")}</span></div>`; }).join("") + `</div>`).join("");
+        `<span class="mut">${drStop != null ? "ตัดขาดทุน≈฿" + fmt(drStop) + " · " : ""}` +
+        `${[q.iss, q.val ? "มูลค่า " + fmt(q.val, 1) + " ล." : ""].filter(Boolean).join(" · ")}</span></div>`; }).join("") + `</div>`).join("");
 }
 const drTxt = o => o.dr ? "DR ไทย: " + o.dr.slice(0, 5).join(" · ") + (o.dr.length > 5 ? " …" : "") : "";
 function render() {
@@ -243,11 +259,11 @@ function render() {
   $("tb").innerHTML = r.length ? r.map(o => `<tr data-t="${o.t}">
     <td><b>${o.t}</b>${drTxt(o) ? `<div class="drs">${drTxt(o)}</div>` : ""}${pairHtml(o)}</td><td>${fmt(o.c)}</td><td>${pc(o.chg)}</td><td><b>${fmt(o.rsima)}</b></td><td>${fmt(o.rsi)}</td>
     <td>${o.streak}</td><td>${pc(o.d800)}</td><td>${pc(o.d200)}</td><td>${nlTxt(o)}</td><td>${o.nh_d ?? "–"}</td>
-    <td>${r30Txt(o)}</td><td>${fmt(o.val, 1)}</td><td>${o.ribbon ? '<span class="tag">เรียง</span>' : ""}</td></tr>`).join("")
-    : `<tr><td colspan="13" class="empty">ไม่มีหุ้นเข้าเงื่อนไข</td></tr>`;
+    <td>${r30Txt(o)}</td><td>${stopOf(o) == null ? "–" : fmt(stopOf(o)) + ` <span class="dn">(${fmt((stopOf(o) / o.c - 1) * 100, 1)}%)</span>`}</td><td>${fmt(o.val, 1)}</td><td>${o.ribbon ? '<span class="tag">เรียง</span>' : ""}</td></tr>`).join("")
+    : `<tr><td colspan="14" class="empty">ไม่มีหุ้นเข้าเงื่อนไข</td></tr>`;
   $("cards").innerHTML = r.length ? r.map(o => `<div class="sc${o.f ? "" : " nochart"}" data-t="${o.t}">
     <div class="top"><b>${o.t}</b><span class="px">${fmt(o.c)} ${pc(o.chg)}</span></div>
-    ${nmOf(o) ? `<div class="nm">${nmOf(o)}</div>` : ""}${pairHtml(o)}${drBox(o)}
+    ${nmOf(o) ? `<div class="nm">${nmOf(o)}</div>` : ""}${stopHtml(o)}${pairHtml(o)}${drBox(o)}
     <div class="chips">
       <span class="chip hl">RSI-MA ${fmt(o.rsima)}</span><span class="chip">RSI ${fmt(o.rsi)}</span>
       <span class="chip">ติด ${o.streak} วัน</span>
@@ -294,6 +310,12 @@ async function openChart(t) {
   if (d.nl) mk.push({time: d.nl, position: "belowBar", color: "#ef5350", shape: "arrowUp", text: "New low"});
   if (d.nh) mk.push({time: d.nh, position: "aboveBar", color: "#26a69a", shape: "arrowDown", text: "New high"});
   cs.setMarkers(mk.sort((a, b) => a.time < b.time ? -1 : 1));
+  const e12 = (d.ema["12"] || []).filter(v => v != null).pop();
+  if (e12 != null) {
+    const sp = e12 * (1 - slPct() / 100);
+    cs.createPriceLine({price: sp, color: "#c62828", lineWidth: 2, lineStyle: 2, axisLabelVisible: true,
+      title: `ตัดขาดทุน −${fmt(slPct(), 1)}% จาก EMA12`});
+  }
   const vs = mainC.addHistogramSeries({priceFormat: {type: "volume"}, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false});
   mainC.priceScale("vol").applyOptions({scaleMargins: {top: .82, bottom: 0}});
   vs.setData(d.time.map((tm, i) => ({time: tm, value: d.v[i], color: (d.c[i] >= d.o[i]) ? "rgba(38,166,154,.5)" : "rgba(239,83,80,.5)"})));
