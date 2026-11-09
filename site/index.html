@@ -66,6 +66,16 @@
   #chartWrap.on{display:flex}
   .ch-head{padding:calc(10px + env(safe-area-inset-top)) 14px 10px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
   .ch-head b{font-size:18px}
+  .ch-head #measureBtn{margin-left:auto;background:#eef2ff;color:#1e3a8a}
+  .ch-head #measureBtn.on{background:#2962ff;color:#fff}
+  .ch-head #close{margin-left:0}
+  #main{position:relative}
+  #mBox{position:absolute;pointer-events:none;z-index:3;display:none;border:1px solid}
+  #mBox.up{background:rgba(41,98,255,.18);border-color:#2962ff}
+  #mBox.dn{background:rgba(239,83,80,.2);border-color:#ef5350}
+  #mLbl{position:absolute;pointer-events:none;z-index:4;display:none;transform:translateX(-50%);color:#fff;font-size:12px;line-height:1.35;
+    padding:5px 9px;border-radius:6px;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+  #mHint{position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:4;display:none;background:#131722;color:#fff;font-size:12px;padding:4px 10px;border-radius:12px;pointer-events:none}
   .ch-head button{margin-left:auto;font:inherit;border:0;border-radius:8px;background:#eee;color:#333;padding:6px 14px}
   .legend{font-size:12px;padding:6px 14px;display:flex;flex-wrap:wrap;gap:10px}
   .legend span::before{content:"";display:inline-block;width:10px;height:3px;margin-right:4px;vertical-align:middle;background:var(--c)}
@@ -152,13 +162,13 @@
 </main>
 
 <div id="chartWrap">
-  <div class="ch-head"><b id="chT"></b><span id="chP"></span><button id="close">ปิด</button></div>
+  <div class="ch-head"><b id="chT"></b><span id="chP"></span><button id="measureBtn" title="เครื่องมือวัด">📏 วัด</button><button id="close">ปิด</button></div>
   <div class="chpair" id="chPair"></div>
   <div class="legend">
     <span style="--c:#F7E463">EMA 12</span><span style="--c:#F4A43B">EMA 26</span><span style="--c:#E57373">EMA 50</span>
     <span style="--c:#4DB6AC">EMA 100</span><span style="--c:#5B7CFA">EMA 200</span><span style="--c:#AB47BC">EMA 800</span>
   </div>
-  <div id="main"></div>
+  <div id="main"><div id="mBox"></div><div id="mLbl"></div><div id="mHint"></div></div>
   <div id="rsiBox"><div id="rsiLbl">RSI 14 · <span style="color:#F7A600">RSI-based MA</span></div><div id="rsi" style="height:100%"></div></div>
 </div>
 
@@ -282,7 +292,7 @@ const pick = e => { const el = e.target.closest("[data-t]"); if (el) openChart(e
 $("tb").onclick = pick; $("cards").onclick = pick;
 
 // ---------------- กราฟ ----------------
-let mainC, rsiC;
+let mainC, rsiC, CS = null, CD = null;
 const COLORS = {"12": "#F7E463", "26": "#F4A43B", "50": "#E57373", "100": "#4DB6AC", "200": "#5B7CFA", "800": "#AB47BC"};
 const base = {layout: {background: {color: "#fff"}, textColor: "#131722", fontFamily: "IBM Plex Sans Thai"},
   grid: {vertLines: {color: "#f0f3fa"}, horzLines: {color: "#f0f3fa"}},
@@ -304,7 +314,7 @@ async function openChart(t) {
   if (mainC) { mainC.remove(); rsiC.remove(); }
   mainC = LightweightCharts.createChart($("main"), {...base, autoSize: true});
   rsiC = LightweightCharts.createChart($("rsi"), {...base, autoSize: true});
-  const cs = mainC.addCandlestickSeries({upColor: "#26a69a", downColor: "#ef5350", borderVisible: false, wickUpColor: "#26a69a", wickDownColor: "#ef5350"});
+  const cs = CS = mainC.addCandlestickSeries({upColor: "#26a69a", downColor: "#ef5350", borderVisible: false, wickUpColor: "#26a69a", wickDownColor: "#ef5350"});
   cs.setData(d.time.map((tm, i) => d.c[i] == null ? {time: tm} : {time: tm, open: d.o[i], high: d.h[i], low: d.l[i], close: d.c[i]}));
   const mk = [];
   if (d.nl) mk.push({time: d.nl, position: "belowBar", color: "#ef5350", shape: "arrowUp", text: "New low"});
@@ -331,8 +341,63 @@ async function openChart(t) {
   const sync = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange(x => { if (lock || !x) return; lock = true; b.timeScale().setVisibleLogicalRange(x); lock = false; });
   sync(mainC, rsiC); sync(rsiC, mainC);
   const n = d.time.length; mainC.timeScale().setVisibleLogicalRange({from: Math.max(0, n - 260), to: n + 5});
+  CD = d; measureReset();
+  mainC.subscribeClick(measureClick);
+  mainC.subscribeCrosshairMove(measureMove);
+  mainC.timeScale().subscribeVisibleLogicalRangeChange(measureDraw);
 }
-const closeChart = () => $("chartWrap").classList.remove("on");
+const closeChart = () => { $("chartWrap").classList.remove("on"); if (MON) measureSet(false); };
+// ---------------- เครื่องมือวัด (แบบ TradingView) ----------------
+// กด 📏 แล้วแตะจุดเริ่ม → แตะจุดจบ: บอกส่วนต่างราคา, %, จำนวนแท่ง, จำนวนวัน, ปริมาณซื้อขายรวม
+let MON = false, MA = null, MB = null, MFIX = false;
+function measureReset() { MA = MB = null; MFIX = false; measureDraw(); }
+function measureSet(on) {
+  MON = on; $("measureBtn").classList.toggle("on", on); measureReset();
+  $("mHint").style.display = on ? "block" : "none"; $("mHint").textContent = "แตะจุดเริ่มต้น";
+}
+function ptFrom(param) {
+  if (!CS || !CD || !param.point) return null;
+  const n = CD.time.length;
+  let i = Math.round(param.logical ?? mainC.timeScale().coordinateToLogical(param.point.x));
+  i = Math.max(0, Math.min(n - 1, i));
+  const price = CS.coordinateToPrice(param.point.y);
+  return price == null ? null : {i, price};
+}
+function measureClick(param) {
+  if (!MON) return;
+  const p = ptFrom(param); if (!p) return;
+  if (!MA || MFIX) { MA = p; MB = p; MFIX = false; $("mHint").textContent = "แตะจุดสิ้นสุด"; }
+  else { MB = p; MFIX = true; $("mHint").textContent = "แตะอีกครั้งเพื่อวัดใหม่ · กด 📏 เพื่อปิด"; }
+  measureDraw();
+}
+function measureMove(param) {
+  if (MON && MA && !MFIX) { const p = ptFrom(param); if (p) { MB = p; measureDraw(); } }
+  else if (MON && MFIX) measureDraw();       // ขยับตามเวลาเลื่อน/ซูมกราฟ
+}
+const kfmt = v => v >= 1e9 ? fmt(v / 1e9) + "B" : v >= 1e6 ? fmt(v / 1e6) + "M" : v >= 1e3 ? fmt(v / 1e3) + "K" : fmt(v, 0);
+function measureDraw() {
+  const box = $("mBox"), lbl = $("mLbl");
+  if (!MON || !MA || !MB || !CS) { box.style.display = lbl.style.display = "none"; return; }
+  const ts = mainC.timeScale();
+  const x1 = ts.logicalToCoordinate(MA.i), x2 = ts.logicalToCoordinate(MB.i);
+  const y1 = CS.priceToCoordinate(MA.price), y2 = CS.priceToCoordinate(MB.price);
+  if ([x1, x2, y1, y2].some(v => v == null)) { box.style.display = lbl.style.display = "none"; return; }
+  const up = MB.price >= MA.price;
+  Object.assign(box.style, {display: "block", left: Math.min(x1, x2) + "px", top: Math.min(y1, y2) + "px",
+    width: Math.max(1, Math.abs(x2 - x1)) + "px", height: Math.max(1, Math.abs(y2 - y1)) + "px"});
+  box.className = up ? "up" : "dn";
+  const diff = MB.price - MA.price, pct = diff / MA.price * 100;
+  const bars = MB.i - MA.i;
+  const days = Math.round((new Date(CD.time[MB.i]) - new Date(CD.time[MA.i])) / 864e5);
+  let vol = 0; for (let k = Math.min(MA.i, MB.i); k <= Math.max(MA.i, MB.i); k++) vol += CD.v[k] || 0;
+  lbl.innerHTML = `${diff >= 0 ? "+" : ""}${fmt(diff)} (${pct >= 0 ? "+" : ""}${fmt(pct)}%)<br>${bars} แท่ง, ${days} วัน<br>ปริมาณ ${kfmt(vol)}`;
+  lbl.style.background = up ? "#2962ff" : "#ef5350";
+  const H = $("main").clientHeight, bottom = Math.max(y1, y2);
+  Object.assign(lbl.style, {display: "block", left: ((x1 + x2) / 2) + "px",
+    top: (bottom + 62 < H ? bottom + 6 : Math.min(y1, y2) - 62) + "px"});
+}
+$("measureBtn").onclick = () => measureSet(!MON);
+
 $("chPair").onclick = e => { const b = e.target.closest("button[data-p]"); if (b) openChart(b.dataset.p); };
 $("close").onclick = () => history.state && history.state.chart ? history.back() : closeChart();
 window.onpopstate = closeChart;   // ปุ่มย้อนกลับของมือถือ = ปิดกราฟ
