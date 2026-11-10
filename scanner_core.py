@@ -342,7 +342,67 @@ def _set100():
         return [s + ".BK" for s in SET100_FALLBACK]
 
 
+TH_INDEXES = {"SET": "ดัชนี SET", "SET50": "ดัชนี SET50", "SET100": "ดัชนี SET100",
+              "SETHD": "ดัชนี SETHD (ปันผลสูง)", "sSET": "ดัชนี sSET (หุ้นขนาดเล็ก)", "MAI": "ดัชนี mai"}
+IDX_SFX = ".INDEX"     # ชื่อในระบบ เช่น SET.INDEX (Yahoo ไม่มีประวัติดัชนีไทย จึงดึงจาก set.or.th)
+
+NAMES.update({k + IDX_SFX: v for k, v in TH_INDEXES.items()})
+
+
+def _th_index():
+    for k, v in TH_INDEXES.items():
+        NAMES[k + IDX_SFX] = v
+    return [k + IDX_SFX for k in TH_INDEXES]
+
+
+def _set_session(referer):
+    sess = requests.Session()
+    sess.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                       "(KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+                         "Accept": "application/json, text/plain, */*", "Referer": referer})
+    sess.get(referer, timeout=30)
+    return sess
+
+
+def fetch_th_indexes(tickers):
+    """ประวัติดัชนีไทยรายวัน 5 ปี จาก set.or.th (มีแต่ราคาปิด) + ค่าวันนี้แบบ OHLC จากหน้าข้อมูลดัชนี"""
+    out = {}
+    try:
+        sess = _set_session("https://www.set.or.th/en/market/index/set/overview")
+        live = {}
+        try:
+            for x in sess.get("https://www.set.or.th/api/set/index/info/list?type=INDEX", timeout=30).json():
+                live[x["symbol"].upper()] = x
+        except Exception as e:
+            print(f"ดัชนีไทย: ไม่ได้ค่าวันนี้ ({e})")
+        for t in tickers:
+            sym = t[:-len(IDX_SFX)]
+            try:
+                r = sess.get(f"https://www.set.or.th/api/set/index/{sym}/chart-quotation?period=5Y&accumulated=false",
+                             timeout=30)
+                r.raise_for_status()
+                q = r.json().get("quotations") or []
+                rows = [(pd.Timestamp(x["localDatetime"][:10]), x["price"], x.get("volume") or 0)
+                        for x in q if x.get("price")]
+                if len(rows) < 100:
+                    raise ValueError(f"ข้อมูลน้อย ({len(rows)})")
+                df = pd.DataFrame(rows, columns=["Date", "Close", "Volume"]).drop_duplicates("Date").set_index("Date")
+                df["Open"] = df["High"] = df["Low"] = df["Close"]
+                lv = live.get(sym.upper())
+                if lv and lv.get("last"):
+                    d = pd.Timestamp(lv["marketDateTime"][:10])
+                    df.loc[d] = {"Close": lv["last"], "Volume": lv.get("volume") or 0, "Open": lv.get("open") or lv["last"],
+                                 "High": lv.get("high") or lv["last"], "Low": lv.get("low") or lv["last"]}
+                out[t] = df.sort_index()[["Open", "High", "Low", "Close", "Volume"]]
+            except Exception as e:
+                print(f"ดัชนีไทย {sym}: ดึงไม่ได้ ({e})")
+    except Exception as e:
+        print(f"ดัชนีไทย: เชื่อม set.or.th ไม่ได้ ({e})")
+    return out
+
+
 UNIVERSES = {
+    "th_index": ("ดัชนีตลาดหุ้นไทย (SET, SET50, SET100, SETHD, sSET, mai)", _th_index),
     "set100":   ("SET100 (หุ้นไทย 100 ตัว)", _set100),
     "theme":    ("หุ้นตามธีมที่คุยกัน (~30)", lambda: THEME_LIST),
     "thai":     ("หุ้นไทยตัวใหญ่ (~50 ชุดเดิม)", lambda: [s + ".BK" for s in THAI_LARGE]),
@@ -397,6 +457,10 @@ def download_prices(tickers, progress=None):
     import yfinance as yf
 
     out, todo = {}, []
+    idx = [t for t in tickers if t.endswith(IDX_SFX)]
+    if idx:
+        out.update(fetch_th_indexes(idx))
+        tickers = [t for t in tickers if not t.endswith(IDX_SFX)]
     for t in tickers:
         p = _cache_path(t)
         if _fresh(p):

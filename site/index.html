@@ -181,7 +181,7 @@
 <script>
 const $ = id => document.getElementById(id);
 let DATA = null, BY = {}, rows = [], sortK = "rsima", sortD = -1;
-const DEF = ["set100", "theme", "thai_dr", "csi300", "nasdaq100", "sp500"];
+const DEF = ["th_index", "set100", "theme", "thai_dr", "csi300", "nasdaq100", "sp500"];
 const IDS = ["slPct","drOnly","th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Lv","r30Min","r30Max","r40On","r40Lv","r40Min","r40Max","a800","rib"];
 const fmt = (v, d = 2) => v == null ? "–" : Number(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
 const pc = v => v == null ? "–" : `<span class="${v >= 0 ? "up" : "dn"}">${v >= 0 ? "+" : ""}${fmt(v)}%</span>`;
