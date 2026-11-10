@@ -55,7 +55,7 @@ def main():
     print(f"รวม {len(tickers)} ตัว — กำลังดึงราคา…")
 
     data = C.download_prices(tickers, lambda d, t: print(f"  {d}/{t}", flush=True))
-    always_chart = {"theme", "thai", "thai_dr"}
+    always_chart = {"theme", "thai", "thai_dr", "set100"}
     dr_map = {x["y"]: x for x in C.load_dr()}     # หุ้นแม่ -> รายชื่อ DR ในไทย
     rows = []
     for t, df in data.items():
@@ -101,6 +101,8 @@ def main():
                 "r30_m": months(today, r30), "rmin": rmin, "date": today.strftime("%Y-%m-%d"),
                 "f": safe if has_chart else None,
             })
+            if t in C.NAMES:
+                rows[-1]["nm"] = C.NAMES[t]
             if t in dr_map:
                 rows[-1]["dr"] = dr_map[t]["drs"]
                 rows[-1]["nm"] = dr_map[t]["name"].title()

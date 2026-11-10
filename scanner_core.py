@@ -306,9 +306,46 @@ def _thai_dr():
     return [x["y"] for x in items]
 
 
+NAMES = {}   # ชื่อบริษัท (เติมระหว่างโหลดรายชื่อ) ใช้แสดงในหน้าเว็บ
+
+SET100_FALLBACK = """AAV ADVANC AEONTS AMATA AOT AP AURA AWC BA BAM BANPU BBL BCH BCP BCPG BDMS BEM BGRIM BH BJC
+BLA BTG BTS CBG CCET CENTEL CHG CK COM7 CPALL CPF CPN CRC DELTA DOHOME EA EGCO ERW GFPT GLOBAL GPSC GST
+GULF GUNKUL HANA HMPRO ICHI IRPC IVL JMART JMT KBANK KCE KKP KTB KTC LH M MEGA MINT MOSHI MRDIYT MTC OR
+OSP PLANB PR9 PRM PTG PTT PTTEP PTTGC QH RATCH RCL SAWAD SCB SCC SCGP SIRI SPALI SPRC STA STECON STGT
+TASCO TCAP TFG THAI TIDLOR TISCO TLI TOA TOP TRUE TTB TU VGI WHA WHAUP""".split()   # ณ 10 พ.ย. 2026
+
+
+def _set100():
+    """หุ้นใน SET100 ดึงจาก set.or.th ทุกครั้ง (ถ้าไม่ได้ใช้รายชื่อสำรองด้านบน)"""
+    try:
+        sess = requests.Session()
+        sess.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                           "(KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+                             "Accept": "application/json, text/plain, */*",
+                             "Referer": "https://www.set.or.th/en/market/index/set100/overview"})
+        sess.get("https://www.set.or.th/en/market/index/set100/overview", timeout=30)
+        r = sess.get("https://www.set.or.th/api/set/index/set100/composition?lang=en", timeout=30)
+        r.raise_for_status()
+        infos = r.json()["composition"]["stockInfos"]
+        if len(infos) < 90:
+            raise ValueError(f"ได้แค่ {len(infos)} ตัว")
+        out = []
+        for x in infos:
+            t = x["symbol"].replace(" ", "") + ".BK"
+            out.append(t)
+            if x.get("nameEN"):
+                NAMES[t] = x["nameEN"].replace(" PUBLIC COMPANY LIMITED", "").title()
+        print(f"SET100: ดึงจาก set.or.th {len(out)} ตัว")
+        return out
+    except Exception as e:
+        print(f"SET100: ดึงจาก set.or.th ไม่ได้ ({e}) — ใช้รายชื่อสำรอง")
+        return [s + ".BK" for s in SET100_FALLBACK]
+
+
 UNIVERSES = {
+    "set100":   ("SET100 (หุ้นไทย 100 ตัว)", _set100),
     "theme":    ("หุ้นตามธีมที่คุยกัน (~30)", lambda: THEME_LIST),
-    "thai":     ("หุ้นไทยตัวใหญ่ (~50)", lambda: [s + ".BK" for s in THAI_LARGE]),
+    "thai":     ("หุ้นไทยตัวใหญ่ (~50 ชุดเดิม)", lambda: [s + ".BK" for s in THAI_LARGE]),
     "nasdaq100": ("Nasdaq-100 (สหรัฐฯ)", _nasdaq100),
     "sp500":    ("S&P 500 (สหรัฐฯ)", _sp500),
     "hangseng": ("Hang Seng (ฮ่องกง)", _hangseng),
