@@ -371,8 +371,12 @@ def fetch_th_indexes(tickers):
         sess = _set_session("https://www.set.or.th/en/market/index/set/overview")
         live = {}
         try:
-            for x in sess.get("https://www.set.or.th/api/set/index/info/list?type=INDEX", timeout=30).json():
-                live[x["symbol"].upper()] = x
+            j = sess.get("https://www.set.or.th/api/set/index/info/list?type=INDEX", timeout=30).json()
+            if isinstance(j, dict):     # บางครั้งห่อมาเป็น {"indexIndustrySectors": [...]} 
+                j = j.get("indexIndustrySectors") or next((v for v in j.values() if isinstance(v, list)), [])
+            for x in j:
+                if isinstance(x, dict) and x.get("symbol"):
+                    live[x["symbol"].upper()] = x
         except Exception as e:
             print(f"ดัชนีไทย: ไม่ได้ค่าวันนี้ ({e})")
         for t in tickers:
