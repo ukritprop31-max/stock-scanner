@@ -49,6 +49,16 @@ jobs:
             git commit -m "อัปเดตรายชื่อ DR / คู่หุ้น A-H"
             git push || echo "push ไม่สำเร็จ — รอบหน้าจะลองใหม่"
           fi
+      - name: บันทึกความเคลื่อนไหวรายสัปดาห์ (กัน GitHub ปิดตารางเวลา)
+        run: |
+          date -u +%G-W%V > keepalive.txt
+          git add keepalive.txt
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "keepalive"
+            git push || echo "push ไม่สำเร็จ"
+          fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
