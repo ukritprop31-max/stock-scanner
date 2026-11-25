@@ -22,6 +22,21 @@ STREAK_TH = 70
 R30_LEVEL = 30
 
 
+def macd_days(ind):
+    """จำนวนวันติดต่อกันที่ MACD อยู่เหนือ Signal (บวก) หรืออยู่ใต้ (ลบ) นับถึงวันล่าสุด"""
+    diff = (ind["macd"] - ind["msig"]).dropna().values[::-1]
+    if not len(diff):
+        return None
+    above = diff[0] > 0
+    n = 0
+    for v in diff:
+        if (v > 0) == above:
+            n += 1
+        else:
+            break
+    return n if above else -n
+
+
 def months(today, d):
     return round((today - d).days / 30.44, 1) if d is not None else None
 
@@ -93,6 +108,8 @@ def main():
             rows.append({
                 "t": t, "m": markets[t], "c": C._f(close, 4), "chg": C._f((close / prev - 1) * 100),
                 "rsi": C._f(ind["rsi"].iloc[-1]), "rsima": rsima, "streak": streak, "e12": e[12],
+                "macd": C._f(ind["macd"].iloc[-1], 4), "msig": C._f(ind["msig"].iloc[-1], 4),
+                "mdays": macd_days(ind),
                 "d800": C._f((close / e[800] - 1) * 100) if e[800] else None,
                 "d200": C._f((close / e[200] - 1) * 100) if e[200] else None,
                 "ribbon": ribbon, "a800": bool(e[800] and close > e[800]),
@@ -163,6 +180,7 @@ def write_chart(path, t, df, ind, nl, nh, r30):
         "c": ser(tail["Close"], 4), "v": [int(v) if not np.isnan(v) else 0 for v in tail["Volume"]],
         "ema": {str(n): ser(ind[f"ema{n}"], 4) for n in C.EMA_LENS},
         "rsi": ser(ind["rsi"], 2), "rsima": ser(ind["rsima"], 2),
+        "macd": ser(ind["macd"], 4), "msig": ser(ind["msig"], 4),
         "nl": nl.strftime("%Y-%m-%d") if nl is not None and nl >= idx[0] else None,
         "nh": nh.strftime("%Y-%m-%d") if nh is not None and nh >= idx[0] else None,
         "r30": r30.strftime("%Y-%m-%d") if r30 is not None and r30 >= idx[0] else None,

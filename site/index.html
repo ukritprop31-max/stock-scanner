@@ -80,6 +80,8 @@
   .legend{font-size:12px;padding:6px 14px;display:flex;flex-wrap:wrap;gap:10px}
   .legend span::before{content:"";display:inline-block;width:10px;height:3px;margin-right:4px;vertical-align:middle;background:var(--c)}
   #main{flex:3;min-height:0}
+  #macdBox{flex:1;min-height:0;border-top:1px solid var(--line);position:relative}
+  #macdLbl{position:absolute;left:12px;top:4px;font-size:12px;z-index:2;color:var(--mut)}
   #rsiBox{flex:1.2;min-height:0;border-top:1px solid var(--line);position:relative;padding-bottom:env(safe-area-inset-bottom)}
   #rsiLbl{position:absolute;left:12px;top:4px;font-size:12px;z-index:2;color:var(--mut)}
   @media (max-width:700px){
@@ -131,6 +133,11 @@
       <input type="number" id="r40Min" value="1" min="0"> ถึง <input type="number" id="r40Max" value="12" min="0"> เดือน
     </div>
     <div class="row" style="margin-top:8px">
+      <label><input type="checkbox" id="mcOn" checked> MACD (12,26,9) อยู่เหนือ Signal มาแล้ว</label>
+      <input type="number" id="mcMin" value="1" min="1" style="width:60px"> ถึง
+      <input type="number" id="mcMax" value="0" min="0" style="width:60px"> วัน
+    </div>
+    <div class="row" style="margin-top:8px">
       <span>เส้นตัดขาดทุน: ต่ำกว่า EMA 12</span>
       <input type="number" id="slPct" value="15" min="1" max="50" step="0.5" style="width:70px"> %
     </div>
@@ -159,7 +166,7 @@
         <th data-k="rsima">RSI-MA</th><th data-k="rsi">RSI</th><th data-k="streak">วันติด (&gt;70)</th>
         <th data-k="d800">ห่าง EMA800</th><th data-k="d200">ห่าง EMA200</th><th data-k="nl_m">New low (เดือนก่อน)</th>
         <th data-k="nh_d">New high (วันก่อน)</th><th data-k="t30" id="h30">ชน 30 (เดือนก่อน)</th><th data-k="t40" id="h40">ชน 40 (เดือนก่อน)</th>
-        <th data-k="e12">ตัดขาดทุน</th><th data-k="val">มูลค่า/วัน (ล้าน)</th><th data-k="ribbon">EMA เรียง</th>
+        <th data-k="mdays">MACD&gt;Signal (วัน)</th><th data-k="e12">ตัดขาดทุน</th><th data-k="val">มูลค่า/วัน (ล้าน)</th><th data-k="ribbon">EMA เรียง</th>
       </tr></thead>
       <tbody id="tb"></tbody>
     </table></div>
@@ -176,13 +183,14 @@
   </div>
   <div id="main"><div id="mBox"></div><div id="mLbl"></div><div id="mHint"></div></div>
   <div id="rsiBox"><div id="rsiLbl">RSI 14 · <span style="color:#F7A600">RSI-based MA</span></div><div id="rsi" style="height:100%"></div></div>
+  <div id="macdBox"><div id="macdLbl">MACD 12,26,9 · <span style="color:#2962ff">MACD</span> · <span style="color:#ff6d00">Signal</span></div><div id="macd" style="height:100%"></div></div>
 </div>
 
 <script>
 const $ = id => document.getElementById(id);
 let DATA = null, BY = {}, rows = [], sortK = "rsima", sortD = -1;
 const DEF = ["th_index", "set100", "theme", "thai_dr", "csi300", "nasdaq100", "sp500"];
-const IDS = ["slPct","drOnly","th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Lv","r30Min","r30Max","r40On","r40Lv","r40Min","r40Max","a800","rib"];
+const IDS = ["mcOn","mcMin","mcMax","slPct","drOnly","th","minv","nlOn","nlMin","nlMax","nhOn","r30On","r30Lv","r30Min","r30Max","r40On","r40Lv","r40Min","r40Max","a800","rib"];
 const fmt = (v, d = 2) => v == null ? "–" : Number(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
 const pc = v => v == null ? "–" : `<span class="${v >= 0 ? "up" : "dn"}">${v >= 0 ? "+" : ""}${fmt(v)}%</span>`;
 const store = {get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -237,6 +245,10 @@ function apply() {
     if (o.nhOn && r.nh_d == null) return false;
     if (o.r30On && !inRange(touchM(r, +o.r30Lv || 30), +o.r30Min, +o.r30Max)) return false;
     if (o.r40On && !inRange(touchM(r, +o.r40Lv || 40), +o.r40Min, +o.r40Max)) return false;
+    if (o.mcOn) {               // MACD เหนือ Signal ต่อเนื่อง mcMin..mcMax วัน (0 = ไม่จำกัด)
+      if (r.mdays == null || r.mdays < Math.max(1, +o.mcMin || 1)) return false;
+      if (+o.mcMax > 0 && r.mdays > +o.mcMax) return false;
+    }
     if (o.a800 && !r.a800) return false;
     if (o.rib && !r.ribbon) return false;
     return true;
@@ -272,6 +284,9 @@ function drBox(o) {
         `${[q.iss, q.val ? "มูลค่า " + fmt(q.val, 1) + " ล." : ""].filter(Boolean).join(" · ")}</span></div>`; }).join("") + `</div>`).join("");
 }
 const drTxt = o => o.dr ? "DR ไทย: " + o.dr.slice(0, 5).join(" · ") + (o.dr.length > 5 ? " …" : "") : "";
+const macdChip = o => o.mdays == null ? "" : o.mdays > 0
+  ? `<span class="chip" style="background:#e8f5e9;color:#1b5e20">MACD เหนือ Signal ${o.mdays} วัน</span>`
+  : `<span class="chip" style="background:#fdecea;color:#b71c1c">MACD ใต้ Signal ${-o.mdays} วัน</span>`;
 let L30 = 30, L40 = 40;
 function render() {
   L30 = lv("r30Lv", 30); L40 = lv("r40Lv", 40);
@@ -287,7 +302,7 @@ function render() {
   $("tb").innerHTML = r.length ? r.map(o => `<tr data-t="${o.t}">
     <td><b>${o.t}</b>${drTxt(o) ? `<div class="drs">${drTxt(o)}</div>` : ""}${pairHtml(o)}</td><td>${fmt(o.c)}</td><td>${pc(o.chg)}</td><td><b>${fmt(o.rsima)}</b></td><td>${fmt(o.rsi)}</td>
     <td>${o.streak}</td><td>${pc(o.d800)}</td><td>${pc(o.d200)}</td><td>${nlTxt(o)}</td><td>${o.nh_d ?? "–"}</td>
-    <td>${tTxt(o.t30)}</td><td>${tTxt(o.t40)}</td><td>${stopOf(o) == null ? "–" : fmt(stopOf(o)) + ` <span class="dn">(${fmt((stopOf(o) / o.c - 1) * 100, 1)}%)</span>`}</td><td>${fmt(o.val, 1)}</td><td>${o.ribbon ? '<span class="tag">เรียง</span>' : ""}</td></tr>`).join("")
+    <td>${tTxt(o.t30)}</td><td>${tTxt(o.t40)}</td><td>${o.mdays == null ? "–" : o.mdays > 0 ? `<span class="up">+${o.mdays}</span>` : `<span class="dn">${o.mdays}</span>`}</td><td>${stopOf(o) == null ? "–" : fmt(stopOf(o)) + ` <span class="dn">(${fmt((stopOf(o) / o.c - 1) * 100, 1)}%)</span>`}</td><td>${fmt(o.val, 1)}</td><td>${o.ribbon ? '<span class="tag">เรียง</span>' : ""}</td></tr>`).join("")
     : `<tr><td colspan="15" class="empty">ไม่มีหุ้นเข้าเงื่อนไข</td></tr>`;
   $("cards").innerHTML = r.length ? r.map(o => `<div class="sc${o.f ? "" : " nochart"}" data-t="${o.t}">
     <div class="top"><b>${o.t}</b><span class="px">${fmt(o.c)} ${pc(o.chg)}</span></div>
@@ -300,6 +315,7 @@ function render() {
       <span class="chip">New high ${o.nh_d == null ? "–" : o.nh_d + " วัน"}</span>
       <span class="chip">ชน ${L30} ${tTxt(o.t30)}${o.t30 == null ? "" : " ด."}</span>
       <span class="chip">ชน ${L40} ${tTxt(o.t40)}${o.t40 == null ? "" : " ด."}</span>
+      ${macdChip(o)}
       ${o.ribbon ? '<span class="chip">EMA เรียง</span>' : ""}
     </div></div>`).join("") : `<div class="empty">ไม่มีหุ้นเข้าเงื่อนไข</div>`;
 }
@@ -311,7 +327,7 @@ const pick = e => { const el = e.target.closest("[data-t]"); if (el) openChart(e
 $("tb").onclick = pick; $("cards").onclick = pick;
 
 // ---------------- กราฟ ----------------
-let mainC, rsiC, CS = null, CD = null;
+let macC = null, mainC, rsiC, CS = null, CD = null;
 const COLORS = {"12": "#F7E463", "26": "#F4A43B", "50": "#E57373", "100": "#4DB6AC", "200": "#5B7CFA", "800": "#AB47BC"};
 const base = {layout: {background: {color: "#fff"}, textColor: "#131722", fontFamily: "IBM Plex Sans Thai"},
   grid: {vertLines: {color: "#f0f3fa"}, horzLines: {color: "#f0f3fa"}},
@@ -327,12 +343,21 @@ async function openChart(t) {
     return `<button data-p="${p}">⇄ ดูคู่ ${p} (RSI-MA ${fmt(x.rsima)}${x.dr ? " · " + x.dr[0] + (x.dr.length > 1 ? "…" : "") : ""})</button>`; }).join("")
     + (r && allDr(r).length ? `<span class="drs" style="align-self:center">DR ไทย: ${allDr(r).map(s => { const q = (DATA.drq || {})[s] || {};
         return s + (q.px != null ? ` ฿${fmt(q.px)}` : "") + (q.chg != null ? ` (${q.chg >= 0 ? "+" : ""}${fmt(q.chg)}%)` : ""); }).join(" · ")}</span>` : "");
-  if (!r || !r.f) { $("chP").textContent = "ไม่มีกราฟเก็บไว้สำหรับหุ้นตัวนี้ (เก็บเฉพาะตัวที่ RSI-MA ≥ 55)"; if (mainC) { mainC.remove(); rsiC.remove(); mainC = null; } return; }
+  if (!r || !r.f) { $("chP").textContent = "ไม่มีกราฟเก็บไว้สำหรับหุ้นตัวนี้ (เก็บเฉพาะตัวที่ RSI-MA ≥ 55)"; if (mainC) { mainC.remove(); rsiC.remove(); macC && macC.remove(); mainC = null; } return; }
   $("chP").textContent = "กำลังโหลด…";
   const d = await (await fetch(`data/c/${r.f}.json`)).json();
-  if (mainC) { mainC.remove(); rsiC.remove(); }
+  if (mainC) { mainC.remove(); rsiC.remove(); macC && macC.remove(); }
   mainC = LightweightCharts.createChart($("main"), {...base, autoSize: true});
   rsiC = LightweightCharts.createChart($("rsi"), {...base, autoSize: true});
+  macC = LightweightCharts.createChart($("macd"), {...base, autoSize: true});
+  $("macdBox").style.display = d.macd ? "" : "none";
+  if (d.macd) {
+    macC.addHistogramSeries({priceLineVisible: false, lastValueVisible: false}).setData(d.time.map((t, i) =>
+      d.macd[i] == null || d.msig[i] == null ? {time: t} : {time: t, value: d.macd[i] - d.msig[i],
+        color: d.macd[i] - d.msig[i] >= 0 ? "rgba(38,166,154,.55)" : "rgba(239,83,80,.55)"}));
+    macC.addLineSeries({color: "#2962ff", lineWidth: 1.5, priceLineVisible: false}).setData(line(d.time, d.macd));
+    macC.addLineSeries({color: "#ff6d00", lineWidth: 1.5, priceLineVisible: false}).setData(line(d.time, d.msig));
+  }
   const cs = CS = mainC.addCandlestickSeries({upColor: "#26a69a", downColor: "#ef5350", borderVisible: false, wickUpColor: "#26a69a", wickDownColor: "#ef5350"});
   cs.setData(d.time.map((tm, i) => d.c[i] == null ? {time: tm} : {time: tm, open: d.o[i], high: d.h[i], low: d.l[i], close: d.c[i]}));
   const mk = [];
@@ -361,7 +386,7 @@ async function openChart(t) {
   $("chP").innerHTML = `${fmt(r.c)} ${pc(r.chg)}`;
   let lock = false;
   const sync = (a, b) => a.timeScale().subscribeVisibleLogicalRangeChange(x => { if (lock || !x) return; lock = true; b.timeScale().setVisibleLogicalRange(x); lock = false; });
-  sync(mainC, rsiC); sync(rsiC, mainC);
+  sync(mainC, rsiC); sync(rsiC, mainC); sync(mainC, macC); sync(macC, mainC); sync(rsiC, macC); sync(macC, rsiC);
   const n = d.time.length; mainC.timeScale().setVisibleLogicalRange({from: Math.max(0, n - 260), to: n + 5});
   CD = d; measureReset();
   mainC.subscribeClick(measureClick);

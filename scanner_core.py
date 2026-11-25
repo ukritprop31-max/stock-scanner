@@ -549,6 +549,9 @@ def indicators(df, rsi_len=14, ma_len=14, ma_kind="SMA"):
     res = {f"ema{n}": ema(c, n) for n in EMA_LENS}
     res["rsi"] = rsi(c, rsi_len)
     res["rsima"] = ma(res["rsi"], ma_len, ma_kind)
+    # MACD 12,26,9 แบบ TradingView: EMA12 - EMA26, Signal = EMA 9 ของ MACD
+    res["macd"] = c.ewm(span=12, adjust=False).mean() - c.ewm(span=26, adjust=False).mean()
+    res["msig"] = res["macd"].ewm(span=9, adjust=False).mean()
     return res
 
 
